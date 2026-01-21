@@ -42,8 +42,11 @@
             <form id="new-session-form">
                 <div class="form-group">
                     <label for="session-dir">Working Directory:</label>
-                    <input type="text" id="session-dir" name="directory" placeholder="/path/to/project" required>
-                    <small>Directory where Claude will run</small>
+                    <div class="autocomplete-wrapper">
+                        <input type="text" id="session-dir" name="directory" placeholder="/path/to/project" autocomplete="off" required>
+                        <div id="dir-suggestions" class="suggestions"></div>
+                    </div>
+                    <small id="dir-hint">Directory where Claude will run</small>
                 </div>
                 <div class="form-group">
                     <label for="session-name">Session Name (optional):</label>

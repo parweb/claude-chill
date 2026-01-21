@@ -57,6 +57,39 @@ export class SessionManager {
         const closeBtn = modal.querySelector('.close-modal');
         const cancelBtn = modal.querySelector('.cancel-btn');
 
+        // Directory autocomplete
+        const dirInput = document.getElementById('session-dir');
+        const suggestions = document.getElementById('dir-suggestions');
+        const hint = document.getElementById('dir-hint');
+        let debounceTimer;
+
+        dirInput.addEventListener('input', () => {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => this.updateDirSuggestions(dirInput, suggestions, hint), 150);
+        });
+
+        dirInput.addEventListener('focus', () => {
+            if (!dirInput.value) {
+                dirInput.value = '/Users/chris.le-guichoux/Sites/';
+                this.updateDirSuggestions(dirInput, suggestions, hint);
+            }
+        });
+
+        suggestions.addEventListener('click', (e) => {
+            if (e.target.classList.contains('suggestion-item')) {
+                dirInput.value = e.target.dataset.path + '/';
+                suggestions.innerHTML = '';
+                dirInput.classList.remove('error');
+                this.updateDirSuggestions(dirInput, suggestions, hint);
+            }
+        });
+
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.autocomplete-wrapper')) {
+                suggestions.innerHTML = '';
+            }
+        });
+
         closeBtn.addEventListener('click', () => this.hideModal());
         cancelBtn.addEventListener('click', () => this.hideModal());
 
@@ -70,10 +103,45 @@ export class SessionManager {
             const directory = formData.get('directory');
             const name = formData.get('name') || this.getDefaultName(directory);
 
+            if (dirInput.classList.contains('error')) {
+                return;
+            }
+
             this.createSession(directory, name);
             this.hideModal();
             form.reset();
         });
+    }
+
+    async updateDirSuggestions(input, suggestions, hint) {
+        const path = input.value.replace(/\/$/, '') || '/Users/chris.le-guichoux/Sites';
+        try {
+            const res = await fetch(`/api/directories?path=${encodeURIComponent(path)}`);
+            const data = await res.json();
+            
+            if (!data.exists) {
+                input.classList.add('error');
+                hint.textContent = 'Directory does not exist';
+                hint.classList.add('error');
+                suggestions.innerHTML = '';
+                return;
+            }
+            
+            input.classList.remove('error');
+            hint.textContent = 'Directory where Claude will run';
+            hint.classList.remove('error');
+            
+            if (data.entries.length > 0) {
+                suggestions.innerHTML = data.entries
+                    .slice(0, 10)
+                    .map(e => `<div class="suggestion-item" data-path="${e.path}">${e.name}</div>`)
+                    .join('');
+            } else {
+                suggestions.innerHTML = '';
+            }
+        } catch (e) {
+            console.error('Failed to fetch directories:', e);
+        }
     }
 
     getDefaultName(directory) {

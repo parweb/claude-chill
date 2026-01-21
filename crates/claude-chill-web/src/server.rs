@@ -46,6 +46,7 @@ pub async fn run(config: Config, state: AppState) -> anyhow::Result<()> {
     let app = Router::new()
         .route("/ws", get(websocket_upgrade))
         .route("/api/sessions", get(list_sessions))
+        .route("/api/directories", get(list_directories))
         .with_state(Arc::new(state))
         .layer(
             TraceLayer::new_for_http()
@@ -63,6 +64,57 @@ pub async fn run(config: Config, state: AppState) -> anyhow::Result<()> {
 
 async fn list_sessions(State(state): State<Arc<AppState>>) -> Json<Vec<SessionInfo>> {
     Json(state.sessions.list().await.into_iter().map(|(id, directory)| SessionInfo { id, directory }).collect())
+}
+
+#[derive(Deserialize)]
+pub struct DirQuery {
+    #[serde(default)]
+    path: Option<String>,
+}
+
+#[derive(Serialize)]
+struct DirEntry {
+    name: String,
+    path: String,
+}
+
+#[derive(Serialize)]
+struct DirResponse {
+    entries: Vec<DirEntry>,
+    exists: bool,
+}
+
+async fn list_directories(Query(query): Query<DirQuery>) -> Json<DirResponse> {
+    let base = query.path.unwrap_or_else(|| "/Users/chris.le-guichoux/Sites".to_string());
+    let path = std::path::Path::new(&base);
+    
+    if !path.exists() {
+        return Json(DirResponse { entries: vec![], exists: false });
+    }
+    
+    if !path.is_dir() {
+        return Json(DirResponse { entries: vec![], exists: true });
+    }
+
+    let mut entries = vec![];
+    if let Ok(read_dir) = std::fs::read_dir(path) {
+        for entry in read_dir.flatten() {
+            if let Ok(ft) = entry.file_type() {
+                if ft.is_dir() {
+                    if let Some(name) = entry.file_name().to_str() {
+                        if !name.starts_with('.') {
+                            entries.push(DirEntry {
+                                name: name.to_string(),
+                                path: entry.path().to_string_lossy().to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+    entries.sort_by(|a, b| a.name.cmp(&b.name));
+    Json(DirResponse { entries, exists: true })
 }
 
 async fn websocket_upgrade(
