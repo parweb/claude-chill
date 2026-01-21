@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
@@ -56,7 +56,12 @@ function TerminalView({ session, isActive }) {
         return () => window.removeEventListener('resize', handleResize);
     }, [isActive, session]);
 
-    return <div ref={containerRef} className={`terminal-wrapper ${isActive ? 'active' : ''}`} />;
+    return (
+        <div
+            ref={containerRef}
+            className={`absolute inset-0 p-2.5 ${isActive ? 'block' : 'hidden'}`}
+        />
+    );
 }
 
 class SessionConnection {
@@ -120,14 +125,10 @@ class SessionConnection {
         this.ws.onclose = () => {
             this.connected = false;
             this.onStateChange();
-            if (!this.ended) {
-                this.reconnect();
-            }
+            if (!this.ended) this.reconnect();
         };
 
-        this.ws.onerror = (e) => {
-            console.error('WebSocket error:', e);
-        };
+        this.ws.onerror = (e) => console.error('WebSocket error:', e);
     }
 
     reconnect() {
@@ -142,9 +143,7 @@ class SessionConnection {
     }
 
     sendInput = (data) => {
-        if (this.ws?.readyState === WebSocket.OPEN) {
-            this.ws.send(data);
-        }
+        if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(data);
     };
 
     sendResize = () => {
@@ -221,64 +220,89 @@ function NewSessionModal({ isOpen, onClose, onCreate }) {
     const handleSubmit = (e) => {
         e.preventDefault();
         if (error) return;
-        const sessionName = name || directory.split('/').filter(Boolean).pop() || 'Session';
-        onCreate(directory, sessionName);
+        onCreate(directory, name || directory.split('/').filter(Boolean).pop() || 'Session');
         onClose();
-    };
-
-    const handleSuggestionClick = (path) => {
-        setDirectory(path + '/');
-        setSuggestions([]);
     };
 
     if (!isOpen) return null;
 
     return (
-        <div className="modal show" onClick={(e) => e.target.className === 'modal show' && onClose()}>
-            <div className="modal-content">
-                <div className="modal-header">
-                    <h2>New Claude Session</h2>
-                    <button className="close-modal" onClick={onClose}>&times;</button>
+        <div
+            onClick={(e) => e.target === e.currentTarget && onClose()}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+        >
+            <div className="bg-bg-secondary rounded-lg w-[90%] max-w-[500px] shadow-xl">
+                <div className="p-5 border-b border-border flex justify-between items-center">
+                    <h2 className="text-text-primary text-lg font-medium m-0">New Claude Session</h2>
+                    <button
+                        onClick={onClose}
+                        className="w-[30px] h-[30px] bg-transparent border-none text-text-secondary text-[28px] cursor-pointer flex items-center justify-center rounded hover:bg-border-hover hover:text-text-primary"
+                    >
+                        ×
+                    </button>
                 </div>
-                <form id="new-session-form" onSubmit={handleSubmit}>
-                    <div className="form-group">
-                        <label htmlFor="session-dir">Working Directory:</label>
-                        <div className="autocomplete-wrapper">
+                <form onSubmit={handleSubmit} className="p-5">
+                    <div className="mb-5">
+                        <label className="block text-text-secondary text-[13px] font-medium mb-2">
+                            Working Directory:
+                        </label>
+                        <div className="relative">
                             <input
                                 ref={inputRef}
                                 type="text"
-                                id="session-dir"
                                 value={directory}
                                 onChange={(e) => setDirectory(e.target.value)}
-                                className={error ? 'error' : ''}
+                                className={`w-full px-3 py-2.5 bg-bg-tertiary rounded text-text-primary text-sm outline-none border ${
+                                    error ? 'border-error' : 'border-border focus:border-accent'
+                                }`}
                                 placeholder="/path/to/project"
                                 autoComplete="off"
                             />
                             {suggestions.length > 0 && (
-                                <div className="suggestions">
+                                <div className="absolute top-full left-0 right-0 bg-bg-tertiary border border-t-0 border-border rounded-b max-h-[200px] overflow-y-auto z-10">
                                     {suggestions.map((s) => (
-                                        <div key={s.path} className="suggestion-item" onClick={() => handleSuggestionClick(s.path)}>
+                                        <div
+                                            key={s.path}
+                                            onClick={() => { setDirectory(s.path + '/'); setSuggestions([]); }}
+                                            className="px-3 py-2 cursor-pointer text-[13px] text-text-secondary hover:bg-accent hover:text-white"
+                                        >
                                             {s.name}
                                         </div>
                                     ))}
                                 </div>
                             )}
                         </div>
-                        <small className={error ? 'error' : ''}>{error || 'Directory where Claude will run'}</small>
+                        <small className={`block mt-1.5 text-xs ${error ? 'text-error' : 'text-text-muted'}`}>
+                            {error || 'Directory where Claude will run'}
+                        </small>
                     </div>
-                    <div className="form-group">
-                        <label htmlFor="session-name">Session Name (optional):</label>
+                    <div className="mb-5">
+                        <label className="block text-text-secondary text-[13px] font-medium mb-2">
+                            Session Name (optional):
+                        </label>
                         <input
                             type="text"
-                            id="session-name"
                             value={name}
                             onChange={(e) => setName(e.target.value)}
+                            className="w-full px-3 py-2.5 bg-bg-tertiary border border-border rounded text-text-primary text-sm outline-none focus:border-accent"
                             placeholder="My Project"
                         />
                     </div>
-                    <div className="form-actions">
-                        <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
-                        <button type="submit" className="btn btn-primary" disabled={!!error}>Create Session</button>
+                    <div className="flex justify-end gap-2.5 pt-2.5">
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="px-4 py-2 bg-border border-none rounded text-[13px] font-medium text-text-secondary cursor-pointer hover:bg-border-hover hover:text-text-primary"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="submit"
+                            disabled={!!error}
+                            className="px-4 py-2 bg-accent border-none rounded text-[13px] font-medium text-white cursor-pointer hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            Create Session
+                        </button>
                     </div>
                 </form>
             </div>
@@ -286,37 +310,18 @@ function NewSessionModal({ isOpen, onClose, onCreate }) {
     );
 }
 
-function SessionTab({ session, isActive, onClick, onClose }) {
-    return (
-        <div className={`tab ${isActive ? 'active' : ''}`} onClick={onClick}>
-            <span className="tab-label">{session.name}</span>
-            <span className="tab-close" onClick={(e) => { e.stopPropagation(); onClose(); }}>×</span>
-        </div>
-    );
-}
-
-function SidebarItem({ session, isActive, onClick }) {
-    return (
-        <div
-            className={`session-item ${isActive ? 'active' : ''}`}
-            onClick={onClick}
-            title={session.name}
-        >
-            {session.name.substring(0, 2).toUpperCase()}
-        </div>
-    );
-}
-
 function SessionView({ sessionData, isActive, onSessionIdChange }) {
     const session = useSession(sessionData.directory, sessionData.name, sessionData.sessionId, onSessionIdChange);
-
     if (!session) return null;
 
     return (
-        <div style={{ display: isActive ? 'block' : 'none', height: '100%', position: 'relative' }}>
+        <div className={`${isActive ? 'block' : 'hidden'} h-full relative`}>
             <TerminalView session={session} isActive={isActive} />
             {session.ended && (
-                <button className="restart-session-btn" onClick={session.restart}>
+                <button
+                    onClick={session.restart}
+                    className="absolute bottom-5 left-1/2 -translate-x-1/2 px-5 py-2.5 bg-accent text-white border-none rounded text-sm cursor-pointer z-10 hover:bg-accent-hover"
+                >
                     ↻ Restart Session
                 </button>
             )}
@@ -326,15 +331,18 @@ function SessionView({ sessionData, isActive, onSessionIdChange }) {
 
 function EmptyState({ onNewSession }) {
     return (
-        <div className="empty-state">
-            <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <div className="flex flex-col items-center justify-center h-full text-text-muted text-center p-10">
+            <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mb-4 opacity-50">
                 <polyline points="4 17 10 11 4 5"></polyline>
                 <line x1="12" y1="19" x2="20" y2="19"></line>
             </svg>
-            <h3>No Active Sessions</h3>
-            <p>Create a new session to start working with Claude</p>
-            <button className="btn btn-primary" onClick={onNewSession}>
-                <span style={{ marginRight: '8px' }}>+</span> New Session
+            <h3 className="text-lg font-medium mb-2 text-text-secondary">No Active Sessions</h3>
+            <p className="text-sm mb-5">Create a new session to start working with Claude</p>
+            <button 
+                onClick={onNewSession} 
+                className="px-4 py-2 bg-accent border-none rounded text-white text-[13px] font-medium cursor-pointer hover:bg-accent-hover"
+            >
+                + New Session
             </button>
         </div>
     );
@@ -344,9 +352,7 @@ export default function App() {
     const [sessions, setSessions] = useState([]);
     const [activeId, setActiveId] = useState(null);
     const [modalOpen, setModalOpen] = useState(false);
-    const [status, setStatus] = useState('Ready');
 
-    // Restore sessions on mount
     useEffect(() => {
         (async () => {
             try {
@@ -366,14 +372,10 @@ export default function App() {
         })();
     }, []);
 
-    // Save sessions to localStorage
     useEffect(() => {
-        const data = sessions.map(s => ({
-            sessionId: s.sessionId,
-            directory: s.directory,
-            name: s.name,
-        }));
-        localStorage.setItem('claude-chill-sessions', JSON.stringify(data));
+        localStorage.setItem('claude-chill-sessions', JSON.stringify(
+            sessions.map(s => ({ sessionId: s.sessionId, directory: s.directory, name: s.name }))
+        ));
     }, [sessions]);
 
     const createSession = (directory, name) => {
@@ -385,7 +387,6 @@ export default function App() {
     const closeSession = (id) => {
         const session = sessions.find(s => s.id === id);
         if (!session || !confirm(`Close session "${session.name}"?`)) return;
-
         setSessions(prev => prev.filter(s => s.id !== id));
         if (activeId === id) {
             const remaining = sessions.filter(s => s.id !== id);
@@ -393,51 +394,72 @@ export default function App() {
         }
     };
 
-    const updateSessionId = (id, sessionId) => {
-        setSessions(prev => prev.map(s => s.id === id ? { ...s, sessionId } : s));
-    };
-
     return (
         <>
-            <div id="sidebar">
-                <div id="sidebar-header">
-                    <button className="icon-button" onClick={() => setModalOpen(true)} title="New Session">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <line x1="12" y1="5" x2="12" y2="19"></line>
-                            <line x1="5" y1="12" x2="19" y2="12"></line>
+            {/* Sidebar */}
+            <div className="w-[50px] bg-bg-secondary border-r border-border flex flex-col z-[100]">
+                <div className="p-2.5 border-b border-border">
+                    <button
+                        onClick={() => setModalOpen(true)}
+                        title="New Session"
+                        className="w-[30px] h-[30px] bg-transparent border-none text-text-secondary cursor-pointer flex items-center justify-center rounded hover:bg-border-hover hover:text-text-primary"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <line x1="12" y1="5" x2="12" y2="19" />
+                            <line x1="5" y1="12" x2="19" y2="12" />
                         </svg>
                     </button>
                 </div>
-                <div id="sessions-list">
+                <div className="flex-1 overflow-y-auto py-2">
                     {sessions.map(s => (
-                        <SidebarItem
+                        <div
                             key={s.id}
-                            session={s}
-                            isActive={activeId === s.id}
                             onClick={() => setActiveId(s.id)}
-                        />
+                            title={s.name}
+                            className={`w-[34px] h-[34px] mx-auto my-1 rounded flex items-center justify-center cursor-pointer text-xs font-semibold ${
+                                activeId === s.id 
+                                    ? 'bg-accent text-white' 
+                                    : 'bg-border text-text-secondary hover:bg-border-hover hover:text-text-primary'
+                            }`}
+                        >
+                            {s.name.substring(0, 2).toUpperCase()}
+                        </div>
                     ))}
                 </div>
             </div>
 
-            <div id="main-content">
-                <div id="status">
-                    <span id="connection-status">{status}</span>
+            {/* Main content */}
+            <div className="flex-1 flex flex-col overflow-hidden">
+                {/* Status */}
+                <div className="fixed top-0 right-0 px-4 py-2 bg-black/80 text-white text-xs font-medium z-[1000] rounded-bl">
+                    <span className="text-success">● Ready</span>
                 </div>
 
-                <div id="tabs-bar">
+                {/* Tabs */}
+                <div className="flex bg-bg-tertiary border-b border-border overflow-x-auto shrink-0">
                     {sessions.map(s => (
-                        <SessionTab
+                        <div
                             key={s.id}
-                            session={s}
-                            isActive={activeId === s.id}
                             onClick={() => setActiveId(s.id)}
-                            onClose={() => closeSession(s.id)}
-                        />
+                            className={`px-4 py-2.5 border-r border-border cursor-pointer flex items-center gap-2 min-w-[120px] max-w-[200px] group ${
+                                activeId === s.id
+                                    ? 'bg-bg-primary text-text-primary border-b-2 border-b-accent'
+                                    : 'bg-bg-tertiary text-text-secondary hover:bg-bg-hover'
+                            }`}
+                        >
+                            <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[13px]">{s.name}</span>
+                            <span
+                                onClick={(e) => { e.stopPropagation(); closeSession(s.id); }}
+                                className="w-4 h-4 flex items-center justify-center rounded text-sm cursor-pointer opacity-0 group-hover:opacity-100 hover:bg-border-hover"
+                            >
+                                ×
+                            </span>
+                        </div>
                     ))}
                 </div>
 
-                <div id="terminals-container">
+                {/* Terminals */}
+                <div className="flex-1 relative overflow-hidden">
                     {sessions.length === 0 ? (
                         <EmptyState onNewSession={() => setModalOpen(true)} />
                     ) : (
@@ -446,18 +468,14 @@ export default function App() {
                                 key={s.id}
                                 sessionData={s}
                                 isActive={activeId === s.id}
-                                onSessionIdChange={(sid) => updateSessionId(s.id, sid)}
+                                onSessionIdChange={(sid) => setSessions(prev => prev.map(x => x.id === s.id ? { ...x, sessionId: sid } : x))}
                             />
                         ))
                     )}
                 </div>
             </div>
 
-            <NewSessionModal
-                isOpen={modalOpen}
-                onClose={() => setModalOpen(false)}
-                onCreate={createSession}
-            />
+            <NewSessionModal isOpen={modalOpen} onClose={() => setModalOpen(false)} onCreate={createSession} />
         </>
     );
 }
