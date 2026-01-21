@@ -1,6 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
-use tokio::sync::{broadcast, mpsc, Mutex, RwLock};
+use tokio::sync::{broadcast, mpsc, watch, Mutex, RwLock};
 use uuid::Uuid;
 
 use crate::child_manager::{ChildManager, InputEvent};
@@ -12,17 +12,25 @@ pub struct Session {
     pub directory: Option<String>,
     pub input_tx: mpsc::Sender<InputEvent>,
     pub broadcast_tx: broadcast::Sender<Vec<u8>>,
+    pub alive_rx: watch::Receiver<bool>,
     history: Mutex<VecDeque<Vec<u8>>>,
     history_size: Mutex<usize>,
 }
 
 impl Session {
-    fn new(id: Uuid, directory: Option<String>, input_tx: mpsc::Sender<InputEvent>, broadcast_tx: broadcast::Sender<Vec<u8>>) -> Self {
+    fn new(
+        id: Uuid,
+        directory: Option<String>,
+        input_tx: mpsc::Sender<InputEvent>,
+        broadcast_tx: broadcast::Sender<Vec<u8>>,
+        alive_rx: watch::Receiver<bool>,
+    ) -> Self {
         Self {
             id,
             directory,
             input_tx,
             broadcast_tx,
+            alive_rx,
             history: Mutex::new(VecDeque::new()),
             history_size: Mutex::new(0),
         }
@@ -68,8 +76,9 @@ impl SessionStore {
         let id = Uuid::new_v4();
         let (input_tx, input_rx) = mpsc::channel(100);
         let (broadcast_tx, _) = broadcast::channel(1024);
+        let (alive_tx, alive_rx) = watch::channel(true);
 
-        let session = Arc::new(Session::new(id, directory.clone(), input_tx, broadcast_tx.clone()));
+        let session = Arc::new(Session::new(id, directory.clone(), input_tx, broadcast_tx.clone(), alive_rx));
         self.sessions.write().await.insert(id, session.clone());
 
         // Spawn history collector
@@ -95,6 +104,8 @@ impl SessionStore {
                 }
                 Err(e) => tracing::error!("Failed to spawn session {}: {}", id, e),
             }
+            // Signal session ended
+            let _ = alive_tx.send(false);
             sessions.write().await.remove(&id);
             tracing::info!("Session {} removed", id);
         });

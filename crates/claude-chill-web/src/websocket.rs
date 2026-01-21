@@ -18,6 +18,7 @@ enum ClientMessage {
 #[serde(tag = "type")]
 enum ServerMessage {
     SessionId { id: String },
+    SessionEnded,
     Pong,
 }
 
@@ -36,6 +37,7 @@ impl WebSocketHandler {
         tracing::info!("WebSocket handler started for session {}", session_id);
 
         let mut broadcast_rx = self.session.broadcast_tx.subscribe();
+        let mut alive_rx = self.session.alive_rx.clone();
         let input_tx = self.session.input_tx.clone();
         let (mut ws_tx, mut ws_rx) = self.ws.split();
 
@@ -67,7 +69,21 @@ impl WebSocketHandler {
                         Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                             tracing::warn!("Client lagged, skipped {} messages", n);
                         }
-                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                            tracing::info!("Broadcast closed for session {}", session_id);
+                            break;
+                        }
+                    }
+                }
+
+                _ = alive_rx.changed() => {
+                    if !*alive_rx.borrow() {
+                        tracing::info!("Session {} ended, notifying client", session_id);
+                        if let Ok(json) = serde_json::to_string(&ServerMessage::SessionEnded) {
+                            let _ = ws_tx.send(Message::Text(json)).await;
+                        }
+                        let _ = ws_tx.close().await;
+                        break;
                     }
                 }
 

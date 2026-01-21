@@ -106,15 +106,24 @@ export class TerminalSession {
 
         this.ws.onclose = () => {
             this.manager.updateStatus('Disconnected', 'disconnected');
-            this.reconnect();
+            if (!this.sessionEnded) {
+                this.reconnect();
+            }
         };
     }
 
     handleControlMessage(msg) {
+        console.log('Control message received:', msg);
         switch (msg.type) {
             case 'SessionId':
                 this.sessionId = msg.id;
                 this.manager.saveSessions();
+                break;
+            case 'SessionEnded':
+                console.log('Session ended!');
+                this.sessionEnded = true;
+                this.term.write(`\r\n\x1b[33m● Session ended\x1b[0m\r\n`);
+                this.showRestartButton();
                 break;
             case 'Pong':
                 break;
@@ -125,6 +134,25 @@ export class TerminalSession {
             default:
                 console.warn('Unknown control message:', msg);
         }
+    }
+
+    showRestartButton() {
+        const btn = document.createElement('button');
+        btn.className = 'restart-session-btn';
+        btn.textContent = '↻ Restart Session';
+        btn.onclick = () => {
+            btn.remove();
+            this.restart();
+        };
+        this.wrapper.appendChild(btn);
+    }
+
+    restart() {
+        this.sessionId = null;
+        this.sessionEnded = false;
+        this.term.clear();
+        this.connect();
+        this.manager.saveSessions();
     }
 
     reconnect() {
