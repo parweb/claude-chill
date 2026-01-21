@@ -44,6 +44,17 @@ impl WebSocketHandler {
             let _ = ws_tx.send(Message::Text(json)).await;
         }
 
+        // Send history to reconnecting client
+        let history = self.session.get_history().await;
+        if !history.is_empty() {
+            tracing::info!("Sending {} history chunks to client", history.len());
+            for chunk in history {
+                if ws_tx.send(Message::Binary(chunk)).await.is_err() {
+                    return Ok(());
+                }
+            }
+        }
+
         loop {
             tokio::select! {
                 result = broadcast_rx.recv() => {
