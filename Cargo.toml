@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/claude-chill",
+    "crates/claude-chill-web",
 ]
 
 [workspace.package]
