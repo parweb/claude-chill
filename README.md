@@ -84,6 +84,31 @@ claude-chill -a 0 claude
 claude-chill -H 50000 -a 0 -- claude --verbose
 ```
 
+## Web Interface (claude-chill-web)
+
+claude-chill-web provides a browser-based terminal interface for remote access and multi-user viewing.
+
+### Quick Start
+
+```bash
+# Build and run
+cargo install --path crates/claude-chill-web
+claude-chill-web
+
+# Open browser to http://localhost:8080
+```
+
+### Features
+
+- 🌐 Access Claude Code through your browser
+- 👥 Multiple clients can view the same session
+- 🔄 Auto-reconnection with history catch-up
+- 📜 100K line scrollback buffer
+- 🔒 Localhost-only by default (secure)
+- ⌨️ Full terminal emulation with xterm.js
+
+See [crates/claude-chill-web/README.md](crates/claude-chill-web/README.md) for detailed documentation.
+
 ## Lookback Mode
 
 Press `Ctrl+6` (or your configured key) to enter lookback mode:
