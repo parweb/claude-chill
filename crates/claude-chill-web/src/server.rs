@@ -3,11 +3,11 @@ use axum::{
         ws::{WebSocket, WebSocketUpgrade},
         Query, State,
     },
-    response::Response,
+    response::{Json, Response},
     routing::get,
     Router,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tower_http::{
@@ -17,17 +17,26 @@ use tower_http::{
 use uuid::Uuid;
 
 use crate::config::Config;
+use crate::session::SessionStore;
 use crate::websocket::WebSocketHandler;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub config: Arc<Config>,
+    pub sessions: SessionStore,
 }
 
 #[derive(Deserialize)]
 pub struct WebSocketQuery {
     #[serde(default)]
     pub directory: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<Uuid>,
+}
+
+#[derive(Serialize)]
+struct SessionInfo {
+    id: Uuid,
+    directory: Option<String>,
 }
 
 pub async fn run(config: Config, state: AppState) -> anyhow::Result<()> {
@@ -36,6 +45,7 @@ pub async fn run(config: Config, state: AppState) -> anyhow::Result<()> {
 
     let app = Router::new()
         .route("/ws", get(websocket_upgrade))
+        .route("/api/sessions", get(list_sessions))
         .with_state(Arc::new(state))
         .layer(
             TraceLayer::new_for_http()
@@ -47,10 +57,12 @@ pub async fn run(config: Config, state: AppState) -> anyhow::Result<()> {
     tracing::info!("Web server listening on http://{}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
-
     axum::serve(listener, app).await?;
-
     Ok(())
+}
+
+async fn list_sessions(State(state): State<Arc<AppState>>) -> Json<Vec<SessionInfo>> {
+    Json(state.sessions.list().await.into_iter().map(|(id, directory)| SessionInfo { id, directory }).collect())
 }
 
 async fn websocket_upgrade(
@@ -58,26 +70,35 @@ async fn websocket_upgrade(
     Query(query): Query<WebSocketQuery>,
     State(state): State<Arc<AppState>>,
 ) -> Response {
-    ws.on_upgrade(|socket| handle_websocket(socket, query.directory, state))
+    let directory = query.directory.filter(|d| !d.is_empty());
+    let session_id = query.session_id;
+    ws.on_upgrade(move |socket| handle_websocket(socket, directory, session_id, state))
 }
 
-async fn handle_websocket(socket: WebSocket, directory: Option<String>, state: Arc<AppState>) {
-    let client_id = Uuid::new_v4();
-    
-    // Filter out empty strings
-    let directory = directory.filter(|d| !d.is_empty());
-    
-    tracing::info!(
-        "Client {} connected with directory: {:?}",
-        client_id,
-        directory
-    );
+async fn handle_websocket(
+    socket: WebSocket,
+    directory: Option<String>,
+    session_id: Option<Uuid>,
+    state: Arc<AppState>,
+) {
+    let session = match session_id {
+        Some(id) => {
+            if let Some(s) = state.sessions.get(id).await {
+                tracing::info!("Client reconnecting to session {}", id);
+                s
+            } else {
+                tracing::info!("Session {} not found, creating new", id);
+                state.sessions.create(directory).await
+            }
+        }
+        None => {
+            tracing::info!("Creating new session");
+            state.sessions.create(directory).await
+        }
+    };
 
-    let handler = WebSocketHandler::new(socket, client_id, directory, state.config.clone());
-
+    let handler = WebSocketHandler::new(socket, session);
     if let Err(e) = handler.handle().await {
-        tracing::error!("WebSocket error for client {}: {}", client_id, e);
+        tracing::error!("WebSocket error: {}", e);
     }
-
-    tracing::info!("Client {} disconnected", client_id);
 }

@@ -1,6 +1,7 @@
 mod child_manager;
 mod config;
 mod server;
+mod session;
 mod websocket;
 
 use clap::Parser;
@@ -100,7 +101,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Start web server
     let state = server::AppState {
-        config: std::sync::Arc::new(config.clone()),
+        sessions: session::SessionStore::new(config.child_command(), config.child_args()),
     };
 
     server::run(config, state).await?;

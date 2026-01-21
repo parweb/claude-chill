@@ -4,11 +4,12 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 
 export class TerminalSession {
-    constructor(id, directory, name, manager) {
+    constructor(id, directory, name, manager, sessionId = null) {
         this.id = id;
         this.directory = directory;
         this.name = name;
         this.manager = manager;
+        this.sessionId = sessionId; // Backend session ID
         this.ws = null;
         this.reconnectAttempts = 0;
         this.maxReconnectAttempts = 10;
@@ -63,9 +64,10 @@ export class TerminalSession {
 
     connect() {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = this.directory 
-            ? `${protocol}//${window.location.host}/ws?directory=${encodeURIComponent(this.directory)}`
-            : `${protocol}//${window.location.host}/ws`;
+        const params = new URLSearchParams();
+        if (this.directory) params.set('directory', this.directory);
+        if (this.sessionId) params.set('session_id', this.sessionId);
+        const wsUrl = `${protocol}//${window.location.host}/ws${params.toString() ? '?' + params : ''}`;
 
         this.manager.updateStatus('Connecting...', 'connecting');
         this.ws = new WebSocket(wsUrl);
@@ -75,9 +77,11 @@ export class TerminalSession {
             this.manager.updateStatus('Connected', 'connected');
             this.reconnectAttempts = 0;
             this.sendResize();
-            this.term.write(`\r\n\x1b[32m● Connected to session: ${this.name}\x1b[0m\r\n`);
-            if (this.directory) {
-                this.term.write(`\x1b[90m● Working directory: ${this.directory}\x1b[0m\r\n\r\n`);
+            if (!this.sessionId) {
+                this.term.write(`\r\n\x1b[32m● Connected to session: ${this.name}\x1b[0m\r\n`);
+                if (this.directory) {
+                    this.term.write(`\x1b[90m● Working directory: ${this.directory}\x1b[0m\r\n\r\n`);
+                }
             }
         };
 
@@ -108,6 +112,10 @@ export class TerminalSession {
 
     handleControlMessage(msg) {
         switch (msg.type) {
+            case 'SessionId':
+                this.sessionId = msg.id;
+                this.manager.saveSessions();
+                break;
             case 'Pong':
                 break;
             case 'Error':

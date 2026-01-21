@@ -7,7 +7,42 @@ export class SessionManager {
         this.sessionCounter = 0;
 
         this.setupUI();
-        this.showEmptyState();
+        this.restoreSessions();
+    }
+
+    async restoreSessions() {
+        try {
+            const res = await fetch('/api/sessions');
+            const serverSessions = await res.json();
+            const serverIds = new Set(serverSessions.map(s => s.id));
+            const saved = JSON.parse(localStorage.getItem('claude-chill-sessions') || '[]');
+            
+            for (const s of saved) {
+                if (serverIds.has(s.sessionId)) {
+                    this.sessionCounter++;
+                    const id = `session-${this.sessionCounter}`;
+                    const session = new TerminalSession(id, s.directory, s.name, this, s.sessionId);
+                    this.sessions.set(id, session);
+                    this.addSidebarItem(id, s.name);
+                    this.addTab(id, s.name);
+                    if (!this.activeSessionId) this.switchToSession(id);
+                }
+            }
+            if (this.sessions.size === 0) this.showEmptyState();
+            else this.hideEmptyState();
+        } catch (e) {
+            console.error('Failed to restore sessions:', e);
+            this.showEmptyState();
+        }
+    }
+
+    saveSessions() {
+        const data = Array.from(this.sessions.values()).map(s => ({
+            sessionId: s.sessionId,
+            directory: s.directory,
+            name: s.name,
+        }));
+        localStorage.setItem('claude-chill-sessions', JSON.stringify(data));
     }
 
     setupUI() {
@@ -151,9 +186,9 @@ export class SessionManager {
 
         if (!confirm(`Close session "${session.name}"?`)) return;
 
-        // Close session
         session.destroy();
         this.sessions.delete(id);
+        this.saveSessions();
 
         // Remove UI elements
         const tab = document.querySelector(`.tab[data-session-id="${id}"]`);
