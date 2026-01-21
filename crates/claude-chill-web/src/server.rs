@@ -3,7 +3,7 @@ use axum::{
         ws::{WebSocket, WebSocketUpgrade},
         State,
     },
-    response::{Html, IntoResponse, Response},
+    response::Response,
     routing::get,
     Router,
 };
@@ -28,18 +28,17 @@ pub struct AppState {
 }
 
 pub async fn run(config: Config, state: AppState) -> anyhow::Result<()> {
+    let serve_dir = ServeDir::new("crates/claude-chill-web/dist")
+        .append_index_html_on_directories(true);
+
     let app = Router::new()
-        .route("/", get(serve_index))
         .route("/ws", get(websocket_upgrade))
-        .nest_service(
-            "/assets",
-            ServeDir::new("crates/claude-chill-web/assets"),
-        )
         .with_state(Arc::new(state))
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(DefaultMakeSpan::default().include_headers(true)),
-        );
+        )
+        .fallback_service(serve_dir);
 
     let addr = SocketAddr::from((config.bind_ip, config.port));
     tracing::info!("Web server listening on http://{}", addr);
@@ -49,10 +48,6 @@ pub async fn run(config: Config, state: AppState) -> anyhow::Result<()> {
     axum::serve(listener, app).await?;
 
     Ok(())
-}
-
-async fn serve_index() -> Response {
-    Html(include_str!("../assets/index.html")).into_response()
 }
 
 async fn websocket_upgrade(
