@@ -102,7 +102,7 @@ claude-chill-web provides a browser-based terminal interface for remote access a
 cargo install --path crates/claude-chill-web
 claude-chill-web
 
-# Open browser to http://localhost:8080
+# Open browser to http://localhost:8468
 ```
 
 ### Features

@@ -15,7 +15,7 @@ use config::Config;
 )]
 struct Cli {
     /// Port to bind to
-    #[arg(short, long, default_value = "8080")]
+    #[arg(short, long, default_value = "8468")]
     port: u16,
 
     /// IP address to bind to (default: 127.0.0.1 for localhost only)

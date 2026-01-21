@@ -58,10 +58,10 @@ cargo install --path crates/claude-chill-web
 ### Basic Usage
 
 ```bash
-# Start web server (defaults to http://127.0.0.1:8080)
+# Start web server (defaults to http://127.0.0.1:8468)
 claude-chill-web
 
-# Then open your browser to http://localhost:8080
+# Then open your browser to http://localhost:8468
 ```
 
 ### Custom Port and Bind Address
@@ -97,7 +97,7 @@ claude-chill-web -a
 claude-chill-web -- --verbose
 
 # Combine all options
-claude-chill-web -p 8080 -H 100000 -- --verbose
+claude-chill-web -p 8468 -H 100000 -- --verbose
 ```
 
 ## Configuration File
@@ -108,8 +108,8 @@ Create `~/.config/claude-chill-web.toml`:
 # Bind address (default: 127.0.0.1)
 bind = "127.0.0.1"
 
-# Port (default: 8080)
-port = 8080
+# Port (default: 8468)
+port = 8468
 
 # Command to run (default: "claude")
 command = "claude"
@@ -147,9 +147,9 @@ For remote access, use SSH port forwarding instead of binding to `0.0.0.0`:
 claude-chill-web
 
 # On local machine
-ssh -L 8080:localhost:8080 user@remote-host
+ssh -L 8468:localhost:8468 user@remote-host
 
-# Then access http://localhost:8080 locally
+# Then access http://localhost:8468 locally
 ```
 
 ### Reverse Proxy (Production)
@@ -159,7 +159,7 @@ For production deployment, use a reverse proxy with authentication:
 ```nginx
 # nginx example
 location /claude-terminal/ {
-    proxy_pass http://127.0.0.1:8080/;
+    proxy_pass http://127.0.0.1:8468/;
     proxy_http_version 1.1;
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "upgrade";
@@ -208,7 +208,7 @@ claude-chill-web -p 8081
 
 2. Check port is accessible:
    ```bash
-   curl http://localhost:8080
+   curl http://localhost:8468
    ```
 
 3. Check browser console for errors (F12)

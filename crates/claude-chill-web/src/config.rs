@@ -48,7 +48,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             bind_ip: "127.0.0.1".parse().unwrap(),
-            port: 8080,
+            port: 8468,
             command: "claude".to_string(),
             command_args: vec![],
             history_lines: None,
