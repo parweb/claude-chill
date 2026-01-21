@@ -63,7 +63,9 @@ export class TerminalSession {
 
     connect() {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/ws?directory=${encodeURIComponent(this.directory)}`;
+        const wsUrl = this.directory 
+            ? `${protocol}//${window.location.host}/ws?directory=${encodeURIComponent(this.directory)}`
+            : `${protocol}//${window.location.host}/ws`;
 
         this.manager.updateStatus('Connecting...', 'connecting');
         this.ws = new WebSocket(wsUrl);
@@ -74,7 +76,9 @@ export class TerminalSession {
             this.reconnectAttempts = 0;
             this.sendResize();
             this.term.write(`\r\n\x1b[32m● Connected to session: ${this.name}\x1b[0m\r\n`);
-            this.term.write(`\x1b[90m● Working directory: ${this.directory}\x1b[0m\r\n\r\n`);
+            if (this.directory) {
+                this.term.write(`\x1b[90m● Working directory: ${this.directory}\x1b[0m\r\n\r\n`);
+            }
         };
 
         this.ws.onmessage = (event) => {

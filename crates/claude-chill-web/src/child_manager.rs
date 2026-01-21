@@ -21,24 +21,36 @@ impl ChildManager {
     pub async fn spawn(
         command: String,
         args: Vec<String>,
+        current_dir: Option<String>,
         broadcast_tx: broadcast::Sender<Vec<u8>>,
         input_rx: mpsc::Receiver<InputEvent>,
     ) -> anyhow::Result<Self> {
-        tracing::info!("Spawning child process: {} {:?}", command, args);
+        tracing::info!(
+            "Spawning child process: {} {:?} in directory: {:?}",
+            command,
+            args,
+            current_dir
+        );
 
-        let mut child = Command::new(&command)
-            .args(&args)
+        let mut cmd = Command::new(&command);
+        cmd.args(&args)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::inherit()) // Let stderr pass through for debugging
-            .spawn()
-            .map_err(|e| {
-                anyhow::anyhow!(
-                    "Failed to spawn '{}': {}. Is it installed and in PATH?",
-                    command,
-                    e
-                )
-            })?;
+            .stderr(std::process::Stdio::inherit()); // Let stderr pass through for debugging
+
+        // Set working directory if provided
+        if let Some(ref dir) = current_dir {
+            cmd.current_dir(dir);
+        }
+
+        let mut child = cmd.spawn().map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to spawn '{}' in directory '{:?}': {}. Is the command installed and is the directory valid?",
+                command,
+                current_dir,
+                e
+            )
+        })?;
 
         let stdin = child
             .stdin
