@@ -73,7 +73,8 @@ impl Cli {
     }
 }
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     // Initialize tracing
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -91,7 +92,75 @@ fn main() -> anyhow::Result<()> {
         config.bind_ip,
         config.port
     );
-    tracing::info!("Child command: claude-chill {}", config.child_args().join(" "));
+    tracing::info!("Child command: {} {}", config.child_command(), config.child_args().join(" "));
+
+    // Create channels
+    let (input_tx, input_rx) = tokio::sync::mpsc::channel(100);
+    let broadcast = std::sync::Arc::new(broadcast::BroadcastManager::new(
+        config.broadcast_capacity,
+        config.history_chunks,
+    ));
+
+    // Spawn child manager task
+    let broadcast_tx = broadcast.tx();
+    let child_command = config.child_command();
+    let child_args = config.child_args();
+    let broadcast_for_child = broadcast.clone();
+
+    tokio::spawn(async move {
+        match child_manager::ChildManager::spawn(
+            child_command.clone(),
+            child_args.clone(),
+            broadcast_tx.clone(),
+            input_rx,
+        )
+        .await
+        {
+            Ok(mut manager) => {
+                tracing::info!("Child manager started");
+
+                // Run child manager loop
+                loop {
+                    match manager.run().await {
+                        Ok(_) => {
+                            tracing::info!("Child process exited normally");
+                            break;
+                        }
+                        Err(e) => {
+                            tracing::error!("Child manager error: {}", e);
+                            break;
+                        }
+                    }
+                }
+
+                // Notify about child exit
+                let exit_msg = b"\r\n\x1b[33mChild process exited. Server will continue running.\x1b[0m\r\n";
+                let _ = broadcast_tx.send(exit_msg.to_vec());
+            }
+            Err(e) => {
+                tracing::error!("Failed to spawn child: {}", e);
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        }
+    });
+
+    // Add broadcast history tracking task
+    let broadcast_for_history = broadcast.clone();
+    let mut history_rx = broadcast.subscribe();
+    tokio::spawn(async move {
+        while let Ok(data) = history_rx.recv().await {
+            broadcast_for_history.add_to_history(data).await;
+        }
+    });
+
+    // Start web server
+    let state = server::AppState {
+        broadcast,
+        input_tx,
+    };
+
+    server::run(config, state).await?;
 
     Ok(())
 }
