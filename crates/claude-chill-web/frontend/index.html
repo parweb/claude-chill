@@ -6,60 +6,7 @@
     <title>Claude Code - Web Terminal</title>
 </head>
 <body>
-    <!-- Sidebar -->
-    <div id="sidebar">
-        <div id="sidebar-header">
-            <button id="new-session-btn" class="icon-button" title="New Session">
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <line x1="12" y1="5" x2="12" y2="19"></line>
-                    <line x1="5" y1="12" x2="19" y2="12"></line>
-                </svg>
-            </button>
-        </div>
-        <div id="sessions-list"></div>
-    </div>
-
-    <!-- Main content -->
-    <div id="main-content">
-        <div id="status">
-            <span id="connection-status">Ready</span>
-        </div>
-
-        <!-- Tabs bar -->
-        <div id="tabs-bar"></div>
-
-        <!-- Terminal containers -->
-        <div id="terminals-container"></div>
-    </div>
-
-    <!-- Modal for new session -->
-    <div id="new-session-modal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2>New Claude Session</h2>
-                <button class="close-modal">&times;</button>
-            </div>
-            <form id="new-session-form">
-                <div class="form-group">
-                    <label for="session-dir">Working Directory:</label>
-                    <div class="autocomplete-wrapper">
-                        <input type="text" id="session-dir" name="directory" placeholder="/path/to/project" autocomplete="off" required>
-                        <div id="dir-suggestions" class="suggestions"></div>
-                    </div>
-                    <small id="dir-hint">Directory where Claude will run</small>
-                </div>
-                <div class="form-group">
-                    <label for="session-name">Session Name (optional):</label>
-                    <input type="text" id="session-name" name="name" placeholder="My Project">
-                </div>
-                <div class="form-actions">
-                    <button type="button" class="btn btn-secondary cancel-btn">Cancel</button>
-                    <button type="submit" class="btn btn-primary">Create Session</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <script type="module" src="/src/main.js"></script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
 </body>
 </html>
