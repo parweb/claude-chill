@@ -3,7 +3,6 @@ use axum::{
         ws::{WebSocket, WebSocketUpgrade},
         State,
     },
-    http::StatusCode,
     response::{Html, IntoResponse, Response},
     routing::get,
     Router,

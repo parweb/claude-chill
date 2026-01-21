@@ -105,7 +105,6 @@ async fn main() -> anyhow::Result<()> {
     let broadcast_tx = broadcast.tx();
     let child_command = config.child_command();
     let child_args = config.child_args();
-    let broadcast_for_child = broadcast.clone();
 
     tokio::spawn(async move {
         match child_manager::ChildManager::spawn(
