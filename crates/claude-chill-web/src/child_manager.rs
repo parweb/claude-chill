@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::{broadcast, mpsc, Mutex};
 
@@ -12,7 +12,7 @@ pub enum InputEvent {
 pub struct ChildManager {
     child: Child,
     stdin: Arc<Mutex<ChildStdin>>,
-    stdout: BufReader<ChildStdout>,
+    stdout: ChildStdout,
     broadcast_tx: broadcast::Sender<Vec<u8>>,
     input_rx: mpsc::Receiver<InputEvent>,
 }
@@ -55,19 +55,19 @@ impl ChildManager {
         Ok(Self {
             child,
             stdin: Arc::new(Mutex::new(stdin)),
-            stdout: BufReader::new(stdout),
+            stdout,
             broadcast_tx,
             input_rx,
         })
     }
 
     pub async fn run(&mut self) -> anyhow::Result<()> {
-        let mut buf = Vec::with_capacity(8192);
+        let mut buf = vec![0u8; 8192];
 
         loop {
             tokio::select! {
                 // Read from child stdout and broadcast to clients
-                result = self.stdout.read_until(b'\n', &mut buf) => {
+                result = self.stdout.read(&mut buf) => {
                     match result {
                         Ok(0) => {
                             // EOF - child stdout closed
@@ -78,11 +78,9 @@ impl ChildManager {
                             tracing::trace!("Read {} bytes from child stdout", n);
 
                             // Broadcast to all connected clients
-                            if let Err(e) = self.broadcast_tx.send(buf.clone()) {
+                            if let Err(e) = self.broadcast_tx.send(buf[..n].to_vec()) {
                                 tracing::warn!("Failed to broadcast data: {}", e);
                             }
-
-                            buf.clear();
                         }
                         Err(e) => {
                             tracing::error!("Error reading from child stdout: {}", e);
