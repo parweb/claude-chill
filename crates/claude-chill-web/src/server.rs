@@ -3,7 +3,7 @@ use axum::{
         ws::{WebSocket, WebSocketUpgrade},
         Query, State,
     },
-    response::{Html, Json, Response},
+    response::{Json, Response},
     routing::get,
     Router,
 };
@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tower_http::{
-    services::ServeDir,
+    services::{ServeDir, ServeFile},
     trace::{DefaultMakeSpan, TraceLayer},
 };
 use uuid::Uuid;
@@ -39,10 +39,10 @@ struct SessionInfo {
     directory: Option<String>,
 }
 
-static INDEX_HTML: &str = include_str!("../dist/index.html");
-
 pub async fn run(config: Config, state: AppState) -> anyhow::Result<()> {
-    let serve_dir = ServeDir::new("crates/claude-chill-web/dist");
+    let index_fallback = ServeFile::new("crates/claude-chill-web/dist/index.html");
+    let serve_dir = ServeDir::new("crates/claude-chill-web/dist")
+        .not_found_service(index_fallback);
 
     let app = Router::new()
         .route("/ws", get(websocket_upgrade))
@@ -53,8 +53,7 @@ pub async fn run(config: Config, state: AppState) -> anyhow::Result<()> {
             TraceLayer::new_for_http()
                 .make_span_with(DefaultMakeSpan::default().include_headers(true)),
         )
-        .fallback_service(serve_dir)
-        .fallback(serve_index);
+        .fallback_service(serve_dir);
 
     let addr = SocketAddr::from((config.bind_ip, config.port));
     tracing::info!("Web server listening on http://{}", addr);
@@ -66,10 +65,6 @@ pub async fn run(config: Config, state: AppState) -> anyhow::Result<()> {
 
 async fn list_sessions(State(state): State<Arc<AppState>>) -> Json<Vec<SessionInfo>> {
     Json(state.sessions.list().await.into_iter().map(|(id, directory)| SessionInfo { id, directory }).collect())
-}
-
-async fn serve_index() -> Html<&'static str> {
-    Html(INDEX_HTML)
 }
 
 #[derive(Deserialize)]
