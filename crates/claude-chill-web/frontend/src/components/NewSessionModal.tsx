@@ -1,34 +1,25 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import DirectoryInput from '@/components/DirectoryInput';
-import { useConfig, useDirectories } from '@/lib/api';
+import { useDirectories } from '@/lib/api';
 
 export type SessionType = 'claude' | 'kiro';
 
 interface Props {
     isOpen: boolean;
+    defaultDirectory: string;
     onClose: () => void;
     onCreate: (directory: string, name: string, sessionType: SessionType) => void;
 }
 
-export default function NewSessionModal({ isOpen, onClose, onCreate }: Props) {
-    const [directory, setDirectory] = useState('');
+export default function NewSessionModal({ isOpen, defaultDirectory, onClose, onCreate }: Props) {
+    const [directory, setDirectory] = useState(defaultDirectory + '/');
     const [name, setName] = useState('');
     const [sessionType, setSessionType] = useState<SessionType>('claude');
 
-    const { data: config } = useConfig();
-    
     const lastSlash = directory.lastIndexOf('/');
     const parentPath = directory.substring(0, lastSlash) || '/';
     const { data: dirData } = useDirectories(parentPath);
     const error = dirData && !dirData.exists ? 'Directory does not exist' : '';
-
-    useEffect(() => {
-        if (isOpen && config) {
-            setDirectory(config.default_directory + '/');
-            setName('');
-            setSessionType('claude');
-        }
-    }, [isOpen, config]);
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -63,7 +54,7 @@ export default function NewSessionModal({ isOpen, onClose, onCreate }: Props) {
                             value={directory}
                             onChange={setDirectory}
                             error={error}
-                            autoFocus={isOpen && !!config}
+                            autoFocus
                         />
                         <small className={`block mt-1.5 text-xs ${error ? 'text-error' : 'text-text-muted'}`}>
                             {error || 'Type to search directories (fuzzy match)'}

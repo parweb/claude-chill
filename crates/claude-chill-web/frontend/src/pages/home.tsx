@@ -6,16 +6,18 @@ import EmptyState from '@/components/EmptyState';
 import SessionView from '@/components/SessionView';
 import NewSessionModal, { type SessionType } from '@/components/NewSessionModal';
 import type { Session } from '@/components/types';
-import { useSessions } from '@/lib/api';
+import { useSessions, useConfig } from '@/lib/api';
 
 export default function HomePage() {
     const [sessions, setSessions] = useState<Session[]>([]);
     const [initialized, setInitialized] = useState(false);
+    const [modalKey, setModalKey] = useState(0);
     const [modalOpen, setModalOpen] = useState(false);
     const navigate = useNavigate();
     const { sessionId: activeId } = useParams();
     
     const { data: serverSessions } = useSessions();
+    const { data: config } = useConfig();
 
     useEffect(() => {
         if (!serverSessions) return;
@@ -77,7 +79,7 @@ export default function HomePage() {
                 sessions={sessions}
                 activeId={activeId ?? null}
                 onSelect={(id) => navigate(`/session/${id}`)}
-                onNewSession={() => setModalOpen(true)}
+                onNewSession={() => { setModalKey(k => k + 1); setModalOpen(true); }}
                 onSettings={() => navigate('/settings')}
             />
 
@@ -107,7 +109,13 @@ export default function HomePage() {
                 </div>
             </div>
 
-            <NewSessionModal isOpen={modalOpen} onClose={() => setModalOpen(false)} onCreate={createSession} />
+            <NewSessionModal
+                key={modalKey}
+                isOpen={modalOpen}
+                defaultDirectory={config?.default_directory ?? ''}
+                onClose={() => setModalOpen(false)}
+                onCreate={createSession}
+            />
         </>
     );
 }
