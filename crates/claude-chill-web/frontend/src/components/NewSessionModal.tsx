@@ -33,12 +33,21 @@ export default function NewSessionModal({ isOpen, onClose, onCreate }: Props) {
     useEffect(() => {
         if (!directory) return;
         const timer = setTimeout(async () => {
-            const path = directory.replace(/\/$/, '') || '/Users/chris.le-guichoux/Sites';
+            // Split into parent dir and partial name being typed
+            const lastSlash = directory.lastIndexOf('/');
+            const parentPath = directory.substring(0, lastSlash) || '/';
+            const partial = directory.substring(lastSlash + 1).toLowerCase();
+            
             try {
-                const res = await fetch(`/api/directories?path=${encodeURIComponent(path)}`);
+                const res = await fetch(`/api/directories?path=${encodeURIComponent(parentPath)}`);
                 const data = await res.json();
                 setError(data.exists ? '' : 'Directory does not exist');
-                setSuggestions(data.entries?.slice(0, 10) || []);
+                
+                // Filter by partial match
+                const filtered = (data.entries || [])
+                    .filter((e: DirEntry) => e.name.toLowerCase().startsWith(partial))
+                    .slice(0, 10);
+                setSuggestions(filtered);
                 setSelectedIndex(-1);
             } catch (e) {
                 console.error('Failed to fetch directories:', e);
