@@ -77,9 +77,9 @@ export default function NewSessionModal({ isOpen, onClose, onCreate }: Props) {
             e.preventDefault();
             const idx = selectedIndex >= 0 ? selectedIndex : 0;
             selectSuggestion(suggestions[idx]);
-        } else if (e.key === 'Enter' && selectedIndex >= 0 && suggestions.length > 0) {
+        } else if (e.key === 'Enter' && suggestions.length > 0) {
             e.preventDefault();
-            selectSuggestion(suggestions[selectedIndex]);
+            selectSuggestion(suggestions[selectedIndex >= 0 ? selectedIndex : 0]);
         }
     };
 
