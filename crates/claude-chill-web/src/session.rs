@@ -98,9 +98,14 @@ impl SessionStore {
         });
 
         // Determine command based on session type
+        // Use unbuffer to force PTY allocation for Kiro (it needs a TTY)
         let (command, args) = match session_type {
             crate::server::SessionType::Claude => (self.claude_command.clone(), self.claude_args.clone()),
-            crate::server::SessionType::Kiro => ("kiro-cli".to_string(), vec!["chat".to_string()]),
+            crate::server::SessionType::Kiro => ("unbuffer".to_string(), vec![
+                "-p".to_string(),
+                "kiro-cli".to_string(),
+                "chat".to_string(),
+            ]),
         };
 
         // Spawn child process
