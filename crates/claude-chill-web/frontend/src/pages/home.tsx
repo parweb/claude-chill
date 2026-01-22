@@ -1,4 +1,4 @@
-import { useState, useEffect, Activity } from 'react';
+import { useState, useEffect, useTransition, Activity } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import Sidebar from '@/components/Sidebar';
 import TabBar from '@/components/TabBar';
@@ -13,6 +13,7 @@ export default function HomePage() {
     const [initialized, setInitialized] = useState(false);
     const [modalKey, setModalKey] = useState(0);
     const [modalOpen, setModalOpen] = useState(false);
+    const [isPending, startTransition] = useTransition();
     const navigate = useNavigate();
     const { sessionId: activeId } = useParams();
     
@@ -32,7 +33,7 @@ export default function HomePage() {
             }
         }
         setInitialized(true);
-    }, [serverSessions]);
+    }, [serverSessions, activeId, navigate]);
 
     useEffect(() => {
         if (initialized) {
@@ -40,10 +41,18 @@ export default function HomePage() {
         }
     }, [sessions, initialized]);
 
+    const selectSession = (id: string) => {
+        startTransition(() => {
+            navigate(`/session/${id}`);
+        });
+    };
+
     const createSession = (directory: string, name: string, sessionType: SessionType) => {
         const id = `pending-${Date.now()}`;
         setSessions(prev => [...prev, { id, directory, name, sessionId: null, status: 'connecting', sessionType }]);
-        navigate(`/session/${id}`);
+        startTransition(() => {
+            navigate(`/session/${id}`);
+        });
     };
 
     const closeSession = (id: string) => {
@@ -52,11 +61,13 @@ export default function HomePage() {
         const remaining = sessions.filter(s => s.id !== id);
         setSessions(remaining);
         if (activeId === id) {
-            if (remaining.length > 0) {
-                navigate(`/session/${remaining[0].id}`);
-            } else {
-                navigate('/');
-            }
+            startTransition(() => {
+                if (remaining.length > 0) {
+                    navigate(`/session/${remaining[0].id}`);
+                } else {
+                    navigate('/');
+                }
+            });
         }
     };
 
@@ -65,7 +76,9 @@ export default function HomePage() {
             s.id === oldId ? { ...s, id: sessionId, sessionId } : s
         ));
         if (activeId === oldId) {
-            navigate(`/session/${sessionId}`, { replace: true });
+            startTransition(() => {
+                navigate(`/session/${sessionId}`, { replace: true });
+            });
         }
     };
 
@@ -78,16 +91,16 @@ export default function HomePage() {
             <Sidebar
                 sessions={sessions}
                 activeId={activeId ?? null}
-                onSelect={(id) => navigate(`/session/${id}`)}
+                onSelect={selectSession}
                 onNewSession={() => { setModalKey(k => k + 1); setModalOpen(true); }}
                 onSettings={() => navigate('/settings')}
             />
 
-            <div className="flex-1 flex flex-col overflow-hidden">
+            <div className={`flex-1 flex flex-col overflow-hidden ${isPending ? 'opacity-80' : ''}`}>
                 <TabBar
                     sessions={sessions}
                     activeId={activeId ?? null}
-                    onSelect={(id) => navigate(`/session/${id}`)}
+                    onSelect={selectSession}
                     onClose={closeSession}
                 />
 

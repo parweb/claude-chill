@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useRef, useMemo, useDeferredValue } from 'react';
 import Fuse from 'fuse.js';
 import { useDirectories } from '@/lib/api';
 
@@ -15,9 +15,11 @@ export default function DirectoryInput({ value, onChange, error, placeholder = '
     const [focused, setFocused] = useState(false);
     const inputRef = useRef<HTMLInputElement>(null);
 
-    const lastSlash = value.lastIndexOf('/');
-    const parentPath = value.substring(0, lastSlash) || '/';
-    const partial = value.substring(lastSlash + 1).toLowerCase();
+    // Defer the search value to keep input responsive
+    const deferredValue = useDeferredValue(value);
+    const lastSlash = deferredValue.lastIndexOf('/');
+    const parentPath = deferredValue.substring(0, lastSlash) || '/';
+    const partial = deferredValue.substring(lastSlash + 1).toLowerCase();
 
     const { data } = useDirectories(parentPath);
 
@@ -28,13 +30,14 @@ export default function DirectoryInput({ value, onChange, error, placeholder = '
         return fuse.search(partial).slice(0, 10).map(r => r.item);
     }, [data?.entries, partial]);
 
-    useEffect(() => {
-        if (autoFocus) inputRef.current?.focus();
-    }, [autoFocus]);
-
-    useEffect(() => {
-        setSelectedIndex(-1);
-    }, [suggestions]);
+    // Reset selection when suggestions change
+    const prevSuggestionsRef = useRef(suggestions);
+    if (prevSuggestionsRef.current !== suggestions) {
+        prevSuggestionsRef.current = suggestions;
+        if (selectedIndex >= suggestions.length) {
+            setSelectedIndex(-1);
+        }
+    }
 
     const selectSuggestion = (s: { path: string }) => {
         onChange(s.path + '/');
@@ -71,6 +74,7 @@ export default function DirectoryInput({ value, onChange, error, placeholder = '
                 onKeyDown={handleKeyDown}
                 onFocus={() => setFocused(true)}
                 onBlur={() => setTimeout(() => setFocused(false), 150)}
+                autoFocus={autoFocus}
                 className={`w-full px-3 py-2.5 bg-bg-tertiary rounded text-text-primary text-sm outline-none border ${
                     error ? 'border-error' : 'border-border focus:border-accent'
                 }`}

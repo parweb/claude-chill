@@ -44,11 +44,11 @@ export default function TerminalView({ session, isActive }: Props) {
 
     useEffect(() => {
         if (isActive && session.fitAddon) {
-            setTimeout(() => {
+            requestAnimationFrame(() => {
                 session.fitAddon?.fit();
                 session.term?.focus();
                 session.sendResize();
-            }, 0);
+            });
         }
     }, [isActive, session]);
 
