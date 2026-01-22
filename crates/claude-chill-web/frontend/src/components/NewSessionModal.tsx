@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
+import DirectoryInput from '@/components/DirectoryInput';
 
 export type SessionType = 'claude' | 'kiro';
 
@@ -8,88 +9,49 @@ interface Props {
     onCreate: (directory: string, name: string, sessionType: SessionType) => void;
 }
 
-interface DirEntry {
-    name: string;
-    path: string;
-}
-
 export default function NewSessionModal({ isOpen, onClose, onCreate }: Props) {
     const [directory, setDirectory] = useState('');
     const [name, setName] = useState('');
     const [sessionType, setSessionType] = useState<SessionType>('claude');
-    const [suggestions, setSuggestions] = useState<DirEntry[]>([]);
-    const [selectedIndex, setSelectedIndex] = useState(-1);
-    const [focused, setFocused] = useState(false);
     const [error, setError] = useState('');
-    const inputRef = useRef<HTMLInputElement>(null);
+    const [ready, setReady] = useState(false);
 
     useEffect(() => {
         if (isOpen) {
             fetch('/api/config')
                 .then(res => res.json())
-                .then(data => setDirectory(data.default_directory + '/'))
-                .catch(() => setDirectory('/'));
+                .then(data => {
+                    setDirectory(data.default_directory + '/');
+                    setReady(true);
+                })
+                .catch(() => {
+                    setDirectory('/');
+                    setReady(true);
+                });
             setName('');
             setSessionType('claude');
             setError('');
-            setSuggestions([]);
-            setSelectedIndex(-1);
-            setTimeout(() => inputRef.current?.focus(), 100);
+        } else {
+            setReady(false);
         }
     }, [isOpen]);
 
+    // Validate directory exists
     useEffect(() => {
         if (!directory) return;
         const timer = setTimeout(async () => {
-            // Split into parent dir and partial name being typed
             const lastSlash = directory.lastIndexOf('/');
             const parentPath = directory.substring(0, lastSlash) || '/';
-            const partial = directory.substring(lastSlash + 1).toLowerCase();
-            
             try {
                 const res = await fetch(`/api/directories?path=${encodeURIComponent(parentPath)}`);
                 const data = await res.json();
                 setError(data.exists ? '' : 'Directory does not exist');
-                
-                // Filter by partial match
-                const filtered = (data.entries || [])
-                    .filter((e: DirEntry) => e.name.toLowerCase().startsWith(partial))
-                    .slice(0, 10);
-                setSuggestions(filtered);
-                setSelectedIndex(-1);
-            } catch (e) {
-                console.error('Failed to fetch directories:', e);
+            } catch {
+                setError('');
             }
-        }, 150);
+        }, 200);
         return () => clearTimeout(timer);
     }, [directory]);
-
-    const selectSuggestion = (s: DirEntry) => {
-        setDirectory(s.path + '/');
-        setSuggestions([]);
-        setSelectedIndex(-1);
-        inputRef.current?.focus();
-    };
-
-    const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Escape') {
-            setSuggestions([]);
-            setSelectedIndex(-1);
-        } else if (e.key === 'ArrowDown' && suggestions.length > 0) {
-            e.preventDefault();
-            setSelectedIndex(i => Math.min(i + 1, suggestions.length - 1));
-        } else if (e.key === 'ArrowUp' && suggestions.length > 0) {
-            e.preventDefault();
-            setSelectedIndex(i => Math.max(i - 1, 0));
-        } else if (e.key === 'Tab' && suggestions.length > 0) {
-            e.preventDefault();
-            const idx = selectedIndex >= 0 ? selectedIndex : 0;
-            selectSuggestion(suggestions[idx]);
-        } else if (e.key === 'Enter' && suggestions.length > 0) {
-            e.preventDefault();
-            selectSuggestion(suggestions[selectedIndex >= 0 ? selectedIndex : 0]);
-        }
-    };
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -120,41 +82,14 @@ export default function NewSessionModal({ isOpen, onClose, onCreate }: Props) {
                         <label className="block text-text-secondary text-[13px] font-medium mb-2">
                             Working Directory:
                         </label>
-                        <div className="relative">
-                            <input
-                                ref={inputRef}
-                                type="text"
-                                value={directory}
-                                onChange={(e) => setDirectory(e.target.value)}
-                                onKeyDown={handleKeyDown}
-                                onFocus={() => setFocused(true)}
-                                onBlur={() => setTimeout(() => setFocused(false), 150)}
-                                className={`w-full px-3 py-2.5 bg-bg-tertiary rounded text-text-primary text-sm outline-none border ${
-                                    error ? 'border-error' : 'border-border focus:border-accent'
-                                }`}
-                                placeholder="/path/to/project"
-                                autoComplete="off"
-                            />
-                            {focused && suggestions.length > 0 && (
-                                <div className="absolute top-full left-0 right-0 bg-bg-tertiary border border-t-0 border-border rounded-b max-h-[200px] overflow-y-auto z-10">
-                                    {suggestions.map((s, i) => (
-                                        <div
-                                            key={s.path}
-                                            onClick={() => selectSuggestion(s)}
-                                            className={`px-3 py-2 cursor-pointer text-[13px] ${
-                                                i === selectedIndex || (selectedIndex === -1 && i === 0)
-                                                    ? 'bg-accent text-white'
-                                                    : 'text-text-secondary hover:bg-accent hover:text-white'
-                                            }`}
-                                        >
-                                            {s.name}
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
+                        <DirectoryInput
+                            value={directory}
+                            onChange={setDirectory}
+                            error={error}
+                            autoFocus={ready}
+                        />
                         <small className={`block mt-1.5 text-xs ${error ? 'text-error' : 'text-text-muted'}`}>
-                            {error || (suggestions.length > 0 ? '↑↓ navigate • Tab/Enter select • Esc close' : 'Directory where Claude will run')}
+                            {error || 'Type to search directories (fuzzy match)'}
                         </small>
                     </div>
                     <div className="mb-5">

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
+import DirectoryInput from '@/components/DirectoryInput';
 
 export default function SettingsPage() {
     const [defaultDir, setDefaultDir] = useState('');
@@ -43,11 +44,9 @@ export default function SettingsPage() {
                         <label className="block text-text-secondary text-sm mb-2">
                             Default Directory
                         </label>
-                        <input
-                            type="text"
+                        <DirectoryInput
                             value={defaultDir}
-                            onChange={(e) => setDefaultDir(e.target.value)}
-                            className="w-full px-3 py-2.5 bg-bg-tertiary border border-border rounded text-text-primary text-sm outline-none focus:border-accent"
+                            onChange={setDefaultDir}
                         />
                         <small className="block mt-1.5 text-xs text-text-muted">
                             Starting directory when creating new sessions
