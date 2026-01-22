@@ -13,6 +13,7 @@ export default class SessionConnection {
     ended = false;
     reconnectAttempts = 0;
     maxReconnectAttempts = 10;
+    pendingData: Uint8Array[] = [];
 
     constructor(directory: string, name: string, sessionId: string | null, onStateChange: () => void) {
         this.directory = directory;
@@ -37,16 +38,16 @@ export default class SessionConnection {
             this.onStateChange();
             this.sendResize();
             if (!this.sessionId) {
-                this.term?.write(`\r\n\x1b[32m● Connected to session: ${this.name}\x1b[0m\r\n`);
+                this.writeToTerm(`\r\n\x1b[32m● Connected to session: ${this.name}\x1b[0m\r\n`);
                 if (this.directory) {
-                    this.term?.write(`\x1b[90m● Working directory: ${this.directory}\x1b[0m\r\n\r\n`);
+                    this.writeToTerm(`\x1b[90m● Working directory: ${this.directory}\x1b[0m\r\n\r\n`);
                 }
             }
         };
 
         this.ws.onmessage = (event: MessageEvent) => {
             if (event.data instanceof ArrayBuffer) {
-                this.term?.write(new Uint8Array(event.data));
+                this.writeToTerm(new Uint8Array(event.data));
             } else {
                 try {
                     const msg = JSON.parse(event.data);
@@ -55,7 +56,7 @@ export default class SessionConnection {
                         this.onStateChange();
                     } else if (msg.type === 'SessionEnded') {
                         this.ended = true;
-                        this.term?.write(`\r\n\x1b[33m● Session ended\x1b[0m\r\n`);
+                        this.writeToTerm(`\r\n\x1b[33m● Session ended\x1b[0m\r\n`);
                         this.onStateChange();
                     }
                 } catch (e) {
@@ -73,14 +74,33 @@ export default class SessionConnection {
         this.ws.onerror = (e) => console.error('WebSocket error:', e);
     }
 
+    writeToTerm(data: Uint8Array | string) {
+        if (this.term) {
+            this.term.write(data);
+        } else {
+            // Buffer data until terminal is ready
+            const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
+            this.pendingData.push(bytes);
+        }
+    }
+
+    flushPendingData() {
+        if (this.term && this.pendingData.length > 0) {
+            for (const data of this.pendingData) {
+                this.term.write(data);
+            }
+            this.pendingData = [];
+        }
+    }
+
     reconnect() {
         if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-            this.term?.write('\r\n\x1b[31m● Failed to reconnect. Please refresh.\x1b[0m\r\n');
+            this.writeToTerm('\r\n\x1b[31m● Failed to reconnect. Please refresh.\x1b[0m\r\n');
             return;
         }
         this.reconnectAttempts++;
         const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
-        this.term?.write(`\r\n\x1b[33m● Connection lost. Reconnecting (attempt ${this.reconnectAttempts})...\x1b[0m\r\n`);
+        this.writeToTerm(`\r\n\x1b[33m● Connection lost. Reconnecting (attempt ${this.reconnectAttempts})...\x1b[0m\r\n`);
         setTimeout(() => this.connect(), delay);
     }
 

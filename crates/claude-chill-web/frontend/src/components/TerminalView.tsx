@@ -32,6 +32,7 @@ export default function TerminalView({ session, isActive }: Props) {
 
         session.term = term;
         session.fitAddon = fitAddon;
+        session.flushPendingData();
 
         term.onData((data) => session.sendInput(new TextEncoder().encode(data)));
 
