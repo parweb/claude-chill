@@ -86,7 +86,7 @@ export default function NewSessionModal({ isOpen, onClose, onCreate }: Props) {
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        if (error || suggestions.length > 0) return;
+        if (error) return;
         onCreate(directory, name || directory.split('/').filter(Boolean).pop() || 'Session');
         onClose();
     };
