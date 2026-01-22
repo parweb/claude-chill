@@ -69,11 +69,13 @@ frontend/
 ### Key Components
 
 **SessionManager** (`session-manager.js`)
+
 - Manages multiple terminal sessions
 - Handles UI (sidebar, tabs, modal)
 - Creates and switches between sessions
 
 **TerminalSession** (`terminal-session.js`)
+
 - Individual xterm.js terminal instance
 - WebSocket connection to backend
 - Handles terminal I/O and resize events
@@ -96,11 +98,13 @@ The frontend communicates with the Rust backend via:
 ## Development Workflow
 
 1. Start the Rust backend server:
+
    ```bash
    cargo run -p claude-chill-web
    ```
 
 2. In a separate terminal, start the Vite dev server:
+
    ```bash
    cd frontend
    bun run dev
