@@ -1,22 +1,23 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import DirectoryInput from '@/components/DirectoryInput';
 import { useConfig, useUpdateConfig } from '@/lib/api';
 
 export default function SettingsPage() {
-    const [defaultDir, setDefaultDir] = useState('');
     const navigate = useNavigate();
-    
     const { data: config } = useConfig();
     const updateConfig = useUpdateConfig();
-
-    useEffect(() => {
-        if (config) setDefaultDir(config.default_directory);
-    }, [config]);
+    
+    // Local edit state, initialized from config
+    const [defaultDir, setDefaultDir] = useState<string | null>(null);
+    const editValue = defaultDir ?? config?.default_directory ?? '';
 
     const save = () => {
-        updateConfig.mutate({ default_directory: defaultDir });
+        updateConfig.mutate({ default_directory: editValue });
+        setDefaultDir(null); // Reset to follow server state
     };
+
+    const hasChanges = defaultDir !== null && defaultDir !== config?.default_directory;
 
     return (
         <div className="flex-1 p-8 overflow-auto">
@@ -39,7 +40,7 @@ export default function SettingsPage() {
                             Default Directory
                         </label>
                         <DirectoryInput
-                            value={defaultDir}
+                            value={editValue}
                             onChange={setDefaultDir}
                         />
                         <small className="block mt-1.5 text-xs text-text-muted">
@@ -50,12 +51,12 @@ export default function SettingsPage() {
                     <div className="flex items-center gap-3">
                         <button
                             onClick={save}
-                            disabled={updateConfig.isPending}
+                            disabled={updateConfig.isPending || !hasChanges}
                             className="px-4 py-2 bg-accent border-none rounded text-sm font-medium text-white cursor-pointer hover:bg-accent-hover disabled:opacity-50"
                         >
                             {updateConfig.isPending ? 'Saving...' : 'Save'}
                         </button>
-                        {updateConfig.isSuccess && <span className="text-success text-sm">✓ Saved</span>}
+                        {updateConfig.isSuccess && !hasChanges && <span className="text-success text-sm">✓ Saved</span>}
                     </div>
                 </div>
             </div>
