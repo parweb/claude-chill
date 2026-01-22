@@ -2,16 +2,17 @@ import TerminalView from '@/components/TerminalView';
 import useSession from '@/components/useSession';
 import { Button } from '@/components/ui/button';
 import type { ConnectionStatus } from '@/components/SessionConnection';
+import type { SessionType } from '@/components/types';
 
 interface Props {
-    sessionData: { directory: string; name: string; sessionId: string | null };
+    sessionData: { directory: string; name: string; sessionId: string | null; sessionType: SessionType };
     isActive: boolean;
     onSessionIdChange: (id: string) => void;
     onStatusChange: (status: ConnectionStatus) => void;
 }
 
 export default function SessionView({ sessionData, isActive, onSessionIdChange, onStatusChange }: Props) {
-    const session = useSession(sessionData.directory, sessionData.name, sessionData.sessionId, onSessionIdChange, onStatusChange);
+    const session = useSession(sessionData.directory, sessionData.name, sessionData.sessionId, sessionData.sessionType, onSessionIdChange, onStatusChange);
     if (!session) return null;
 
     return (

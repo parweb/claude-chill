@@ -25,12 +25,22 @@ pub struct AppState {
     pub sessions: SessionStore,
 }
 
+#[derive(Deserialize, Clone, Copy, Default, Debug)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionType {
+    #[default]
+    Claude,
+    Kiro,
+}
+
 #[derive(Deserialize)]
 pub struct WebSocketQuery {
     #[serde(default)]
     pub directory: Option<String>,
     #[serde(default)]
     pub session_id: Option<Uuid>,
+    #[serde(default)]
+    pub session_type: SessionType,
 }
 
 #[derive(Serialize)]
@@ -125,13 +135,15 @@ async fn websocket_upgrade(
 ) -> Response {
     let directory = query.directory.filter(|d| !d.is_empty());
     let session_id = query.session_id;
-    ws.on_upgrade(move |socket| handle_websocket(socket, directory, session_id, state))
+    let session_type = query.session_type;
+    ws.on_upgrade(move |socket| handle_websocket(socket, directory, session_id, session_type, state))
 }
 
 async fn handle_websocket(
     socket: WebSocket,
     directory: Option<String>,
     session_id: Option<Uuid>,
+    session_type: SessionType,
     state: Arc<AppState>,
 ) {
     let session = match session_id {
@@ -141,12 +153,12 @@ async fn handle_websocket(
                 s
             } else {
                 tracing::info!("Session {} not found, creating new", id);
-                state.sessions.create(directory).await
+                state.sessions.create(directory, session_type).await
             }
         }
         None => {
             tracing::info!("Creating new session");
-            state.sessions.create(directory).await
+            state.sessions.create(directory, session_type).await
         }
     };
 

@@ -56,23 +56,29 @@ impl Session {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub enum SessionType {
+    Claude,
+    Kiro,
+}
+
 #[derive(Clone)]
 pub struct SessionStore {
     sessions: Arc<RwLock<HashMap<Uuid, Arc<Session>>>>,
-    command: String,
-    args: Vec<String>,
+    claude_command: String,
+    claude_args: Vec<String>,
 }
 
 impl SessionStore {
     pub fn new(command: String, args: Vec<String>) -> Self {
         Self {
             sessions: Arc::new(RwLock::new(HashMap::new())),
-            command,
-            args,
+            claude_command: command,
+            claude_args: args,
         }
     }
 
-    pub async fn create(&self, directory: Option<String>) -> Arc<Session> {
+    pub async fn create(&self, directory: Option<String>, session_type: crate::server::SessionType) -> Arc<Session> {
         let id = Uuid::new_v4();
         let (input_tx, input_rx) = mpsc::channel(100);
         let (broadcast_tx, _) = broadcast::channel(1024);
@@ -90,9 +96,13 @@ impl SessionStore {
             }
         });
 
+        // Determine command based on session type
+        let (command, args) = match session_type {
+            crate::server::SessionType::Claude => (self.claude_command.clone(), self.claude_args.clone()),
+            crate::server::SessionType::Kiro => ("kiro-cli".to_string(), vec!["chat".to_string()]),
+        };
+
         // Spawn child process
-        let command = self.command.clone();
-        let args = self.args.clone();
         let sessions = self.sessions.clone();
         tokio::spawn(async move {
             match ChildManager::spawn(command, args, directory, broadcast_tx, input_rx).await {

@@ -1,5 +1,6 @@
 import type { Terminal } from '@xterm/xterm';
 import type { FitAddon } from '@xterm/addon-fit';
+import type { SessionType } from '@/components/types';
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'ended';
 
@@ -7,6 +8,7 @@ export default class SessionConnection {
     directory: string;
     name: string;
     sessionId: string | null;
+    sessionType: SessionType;
     onStateChange: () => void;
     ws: WebSocket | null = null;
     term: Terminal | null = null;
@@ -16,10 +18,11 @@ export default class SessionConnection {
     maxReconnectAttempts = 10;
     pendingData: Uint8Array[] = [];
 
-    constructor(directory: string, name: string, sessionId: string | null, onStateChange: () => void) {
+    constructor(directory: string, name: string, sessionId: string | null, sessionType: SessionType, onStateChange: () => void) {
         this.directory = directory;
         this.name = name;
         this.sessionId = sessionId;
+        this.sessionType = sessionType;
         this.onStateChange = onStateChange;
     }
 
@@ -28,6 +31,7 @@ export default class SessionConnection {
         const params = new URLSearchParams();
         if (this.directory) params.set('directory', this.directory);
         if (this.sessionId) params.set('session_id', this.sessionId);
+        params.set('session_type', this.sessionType);
         const url = `${protocol}//${window.location.host}/ws${params.toString() ? '?' + params : ''}`;
 
         this.ws = new WebSocket(url);
