@@ -19,6 +19,7 @@
     "noUncheckedSideEffectImports": true,
     "noImplicitReturns": true,
     "noImplicitOverride": true,
+    "noImplicitAny": true,
     "noPropertyAccessFromIndexSignature": true,
     "exactOptionalPropertyTypes": true,
     "forceConsistentCasingInFileNames": true,
