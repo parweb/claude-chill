@@ -25,7 +25,11 @@ export default function NewSessionModal({ isOpen, onClose, onCreate }: Props) {
 
     useEffect(() => {
         if (isOpen) {
-            setDirectory('/Users/chris.le-guichoux/Sites/');
+            // Load default directory from config
+            fetch('/api/config')
+                .then(res => res.json())
+                .then(data => setDirectory(data.default_directory + '/'))
+                .catch(() => setDirectory('/'));
             setName('');
             setSessionType('claude');
             setError('');

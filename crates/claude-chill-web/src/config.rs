@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::net::IpAddr;
 use std::path::PathBuf;
@@ -14,6 +14,7 @@ pub struct TomlConfig {
     pub auto_lookback: Option<bool>,
     pub broadcast_capacity: Option<usize>,
     pub history_chunks: Option<usize>,
+    pub default_directory: Option<String>,
 }
 
 impl Default for TomlConfig {
@@ -27,6 +28,7 @@ impl Default for TomlConfig {
             auto_lookback: None,
             broadcast_capacity: None,
             history_chunks: None,
+            default_directory: None,
         }
     }
 }
@@ -42,6 +44,7 @@ pub struct Config {
     pub auto_lookback: bool,
     pub broadcast_capacity: usize,
     pub history_chunks: usize,
+    pub default_directory: String,
 }
 
 impl Default for Config {
@@ -56,6 +59,9 @@ impl Default for Config {
             auto_lookback: false,
             broadcast_capacity: 1024,
             history_chunks: 1000,
+            default_directory: dirs::home_dir()
+                .map(|h| h.to_string_lossy().to_string())
+                .unwrap_or_else(|| "/".to_string()),
         }
     }
 }
@@ -138,7 +144,21 @@ impl Config {
             config.history_chunks = history_chunks;
         }
 
+        if let Some(default_directory) = toml.default_directory {
+            config.default_directory = default_directory;
+        }
+
         config
+    }
+
+    pub fn save(&self) -> anyhow::Result<()> {
+        let path = Self::config_path().ok_or_else(|| anyhow::anyhow!("No config directory"))?;
+        let toml = TomlConfigWrite {
+            default_directory: Some(self.default_directory.clone()),
+        };
+        let content = toml::to_string_pretty(&toml)?;
+        fs::write(path, content)?;
+        Ok(())
     }
 
     pub fn child_command(&self) -> String {
@@ -172,4 +192,9 @@ impl Config {
 
         args
     }
+}
+
+#[derive(Serialize)]
+struct TomlConfigWrite {
+    default_directory: Option<String>,
 }

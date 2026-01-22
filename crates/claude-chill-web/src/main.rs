@@ -102,6 +102,7 @@ async fn main() -> anyhow::Result<()> {
     // Start web server
     let state = server::AppState {
         sessions: session::SessionStore::new(config.child_command(), config.child_args()),
+        config: std::sync::Arc::new(std::sync::RwLock::new(config.clone())),
     };
 
     server::run(config, state).await?;

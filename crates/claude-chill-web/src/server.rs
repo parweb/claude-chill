@@ -4,7 +4,7 @@ use axum::{
         Query, State,
     },
     response::{Json, Response},
-    routing::get,
+    routing::{get, put},
     Router,
 };
 use serde::{Deserialize, Serialize};
@@ -23,6 +23,7 @@ use crate::websocket::WebSocketHandler;
 #[derive(Clone)]
 pub struct AppState {
     pub sessions: SessionStore,
+    pub config: std::sync::Arc<std::sync::RwLock<Config>>,
 }
 
 #[derive(Deserialize, Clone, Copy, Default, Debug)]
@@ -58,6 +59,7 @@ pub async fn run(config: Config, state: AppState) -> anyhow::Result<()> {
         .route("/ws", get(websocket_upgrade))
         .route("/api/sessions", get(list_sessions))
         .route("/api/directories", get(list_directories))
+        .route("/api/config", get(get_config).put(update_config))
         .with_state(Arc::new(state))
         .layer(
             TraceLayer::new_for_http()
@@ -95,8 +97,9 @@ struct DirResponse {
     exists: bool,
 }
 
-async fn list_directories(Query(query): Query<DirQuery>) -> Json<DirResponse> {
-    let base = query.path.unwrap_or_else(|| "/Users/chris.le-guichoux/Sites".to_string());
+async fn list_directories(Query(query): Query<DirQuery>, State(state): State<Arc<AppState>>) -> Json<DirResponse> {
+    let default_dir = state.config.read().unwrap().default_directory.clone();
+    let base = query.path.unwrap_or(default_dir);
     let path = std::path::Path::new(&base);
     
     if !path.exists() {
@@ -166,4 +169,35 @@ async fn handle_websocket(
     if let Err(e) = handler.handle().await {
         tracing::error!("WebSocket error: {}", e);
     }
+}
+
+#[derive(Serialize)]
+struct ConfigResponse {
+    default_directory: String,
+}
+
+async fn get_config(State(state): State<Arc<AppState>>) -> Json<ConfigResponse> {
+    let config = state.config.read().unwrap();
+    Json(ConfigResponse {
+        default_directory: config.default_directory.clone(),
+    })
+}
+
+#[derive(Deserialize)]
+struct UpdateConfigRequest {
+    default_directory: Option<String>,
+}
+
+async fn update_config(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<UpdateConfigRequest>,
+) -> Json<ConfigResponse> {
+    let mut config = state.config.write().unwrap();
+    if let Some(dir) = req.default_directory {
+        config.default_directory = dir;
+        let _ = config.save();
+    }
+    Json(ConfigResponse {
+        default_directory: config.default_directory.clone(),
+    })
 }
