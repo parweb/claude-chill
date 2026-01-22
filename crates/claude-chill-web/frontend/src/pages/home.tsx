@@ -9,6 +9,7 @@ import type { Session } from '@/components/types';
 
 export default function HomePage() {
     const [sessions, setSessions] = useState<Session[]>([]);
+    const [initialized, setInitialized] = useState(false);
     const [modalOpen, setModalOpen] = useState(false);
     const navigate = useNavigate();
     const { sessionId: activeId } = useParams();
@@ -30,12 +31,15 @@ export default function HomePage() {
             } catch (e) {
                 console.error('Failed to restore sessions:', e);
             }
+            setInitialized(true);
         })();
     }, []);
 
     useEffect(() => {
-        localStorage.setItem('claude-chill-sessions', JSON.stringify(sessions));
-    }, [sessions]);
+        if (initialized) {
+            localStorage.setItem('claude-chill-sessions', JSON.stringify(sessions));
+        }
+    }, [sessions, initialized]);
 
     const createSession = (directory: string, name: string) => {
         const id = `pending-${Date.now()}`;
