@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import SessionConnection from './SessionConnection';
+import SessionConnection from '@/components/SessionConnection';
 
 export default function useSession(
     directory: string,

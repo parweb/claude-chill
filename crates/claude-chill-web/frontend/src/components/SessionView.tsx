@@ -1,5 +1,5 @@
-import TerminalView from './TerminalView';
-import useSession from './useSession';
+import TerminalView from '@/components/TerminalView';
+import useSession from '@/components/useSession';
 
 interface Props {
     sessionData: { directory: string; name: string; sessionId: string | null };

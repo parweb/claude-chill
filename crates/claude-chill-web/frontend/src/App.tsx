@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
-import Sidebar from './components/Sidebar';
-import TabBar from './components/TabBar';
-import EmptyState from './components/EmptyState';
-import SessionView from './components/SessionView';
-import NewSessionModal from './components/NewSessionModal';
-import type { Session } from './components/types';
+import Sidebar from '@/components/Sidebar';
+import TabBar from '@/components/TabBar';
+import EmptyState from '@/components/EmptyState';
+import SessionView from '@/components/SessionView';
+import NewSessionModal from '@/components/NewSessionModal';
+import type { Session } from '@/components/types';
 
 export default function App() {
     const [sessions, setSessions] = useState<Session[]>([]);

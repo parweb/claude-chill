@@ -1,4 +1,4 @@
-import type { Session } from './types';
+import type { Session } from '@/components/types';
 
 interface Props {
     sessions: Session[];
