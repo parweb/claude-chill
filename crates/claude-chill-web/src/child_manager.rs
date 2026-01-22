@@ -134,7 +134,11 @@ impl ChildManager {
                                 self.pending_output.push_str(text);
                                 // Keep only last 1KB for prompt detection
                                 if self.pending_output.len() > 1024 {
-                                    let start = self.pending_output.len() - 1024;
+                                    // Find a valid char boundary
+                                    let mut start = self.pending_output.len() - 1024;
+                                    while !self.pending_output.is_char_boundary(start) && start < self.pending_output.len() {
+                                        start += 1;
+                                    }
                                     self.pending_output = self.pending_output[start..].to_string();
                                 }
                                 
