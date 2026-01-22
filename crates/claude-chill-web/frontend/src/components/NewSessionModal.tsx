@@ -15,6 +15,7 @@ export default function NewSessionModal({ isOpen, onClose, onCreate }: Props) {
     const [directory, setDirectory] = useState('');
     const [name, setName] = useState('');
     const [suggestions, setSuggestions] = useState<DirEntry[]>([]);
+    const [selectedIndex, setSelectedIndex] = useState(-1);
     const [error, setError] = useState('');
     const inputRef = useRef<HTMLInputElement>(null);
 
@@ -23,6 +24,8 @@ export default function NewSessionModal({ isOpen, onClose, onCreate }: Props) {
             setDirectory('/Users/chris.le-guichoux/Sites/');
             setName('');
             setError('');
+            setSuggestions([]);
+            setSelectedIndex(-1);
             setTimeout(() => inputRef.current?.focus(), 100);
         }
     }, [isOpen]);
@@ -36,6 +39,7 @@ export default function NewSessionModal({ isOpen, onClose, onCreate }: Props) {
                 const data = await res.json();
                 setError(data.exists ? '' : 'Directory does not exist');
                 setSuggestions(data.entries?.slice(0, 10) || []);
+                setSelectedIndex(-1);
             } catch (e) {
                 console.error('Failed to fetch directories:', e);
             }
@@ -43,9 +47,36 @@ export default function NewSessionModal({ isOpen, onClose, onCreate }: Props) {
         return () => clearTimeout(timer);
     }, [directory]);
 
+    const selectSuggestion = (s: DirEntry) => {
+        setDirectory(s.path + '/');
+        setSuggestions([]);
+        setSelectedIndex(-1);
+        inputRef.current?.focus();
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === 'Escape') {
+            setSuggestions([]);
+            setSelectedIndex(-1);
+        } else if (e.key === 'ArrowDown' && suggestions.length > 0) {
+            e.preventDefault();
+            setSelectedIndex(i => Math.min(i + 1, suggestions.length - 1));
+        } else if (e.key === 'ArrowUp' && suggestions.length > 0) {
+            e.preventDefault();
+            setSelectedIndex(i => Math.max(i - 1, 0));
+        } else if (e.key === 'Tab' && suggestions.length > 0) {
+            e.preventDefault();
+            const idx = selectedIndex >= 0 ? selectedIndex : 0;
+            selectSuggestion(suggestions[idx]);
+        } else if (e.key === 'Enter' && selectedIndex >= 0 && suggestions.length > 0) {
+            e.preventDefault();
+            selectSuggestion(suggestions[selectedIndex]);
+        }
+    };
+
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        if (error) return;
+        if (error || suggestions.length > 0) return;
         onCreate(directory, name || directory.split('/').filter(Boolean).pop() || 'Session');
         onClose();
     };
@@ -78,7 +109,7 @@ export default function NewSessionModal({ isOpen, onClose, onCreate }: Props) {
                                 type="text"
                                 value={directory}
                                 onChange={(e) => setDirectory(e.target.value)}
-                                onKeyDown={(e) => { if (e.key === 'Escape') setSuggestions([]); }}
+                                onKeyDown={handleKeyDown}
                                 className={`w-full px-3 py-2.5 bg-bg-tertiary rounded text-text-primary text-sm outline-none border ${
                                     error ? 'border-error' : 'border-border focus:border-accent'
                                 }`}
@@ -87,11 +118,15 @@ export default function NewSessionModal({ isOpen, onClose, onCreate }: Props) {
                             />
                             {suggestions.length > 0 && (
                                 <div className="absolute top-full left-0 right-0 bg-bg-tertiary border border-t-0 border-border rounded-b max-h-[200px] overflow-y-auto z-10">
-                                    {suggestions.map((s) => (
+                                    {suggestions.map((s, i) => (
                                         <div
                                             key={s.path}
-                                            onClick={() => { setDirectory(s.path + '/'); setSuggestions([]); }}
-                                            className="px-3 py-2 cursor-pointer text-[13px] text-text-secondary hover:bg-accent hover:text-white"
+                                            onClick={() => selectSuggestion(s)}
+                                            className={`px-3 py-2 cursor-pointer text-[13px] ${
+                                                i === selectedIndex
+                                                    ? 'bg-accent text-white'
+                                                    : 'text-text-secondary hover:bg-accent hover:text-white'
+                                            }`}
                                         >
                                             {s.name}
                                         </div>
@@ -100,7 +135,7 @@ export default function NewSessionModal({ isOpen, onClose, onCreate }: Props) {
                             )}
                         </div>
                         <small className={`block mt-1.5 text-xs ${error ? 'text-error' : 'text-text-muted'}`}>
-                            {error || 'Directory where Claude will run'}
+                            {error || (suggestions.length > 0 ? '↑↓ navigate • Tab/Enter select • Esc close' : 'Directory where Claude will run')}
                         </small>
                     </div>
                     <div className="mb-5">
