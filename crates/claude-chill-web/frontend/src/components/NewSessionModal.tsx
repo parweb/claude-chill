@@ -135,7 +135,7 @@ export default function NewSessionModal({ isOpen, onClose, onCreate }: Props) {
                                             key={s.path}
                                             onClick={() => selectSuggestion(s)}
                                             className={`px-3 py-2 cursor-pointer text-[13px] ${
-                                                i === selectedIndex
+                                                i === selectedIndex || (selectedIndex === -1 && i === 0)
                                                     ? 'bg-accent text-white'
                                                     : 'text-text-secondary hover:bg-accent hover:text-white'
                                             }`}
