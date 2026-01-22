@@ -78,6 +78,7 @@ export default function NewSessionModal({ isOpen, onClose, onCreate }: Props) {
                                 type="text"
                                 value={directory}
                                 onChange={(e) => setDirectory(e.target.value)}
+                                onKeyDown={(e) => { if (e.key === 'Escape') setSuggestions([]); }}
                                 className={`w-full px-3 py-2.5 bg-bg-tertiary rounded text-text-primary text-sm outline-none border ${
                                     error ? 'border-error' : 'border-border focus:border-accent'
                                 }`}
