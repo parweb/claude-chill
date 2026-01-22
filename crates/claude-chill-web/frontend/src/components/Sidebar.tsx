@@ -1,4 +1,5 @@
 import type { Session } from '@/components/types';
+import { LuPlus, LuSettings } from 'react-icons/lu';
 
 interface Props {
     sessions: Session[];
@@ -17,10 +18,7 @@ export default function Sidebar({ sessions, activeId, onSelect, onNewSession, on
                     title="New Session"
                     className="w-[30px] h-[30px] bg-transparent border-none text-text-secondary cursor-pointer flex items-center justify-center rounded hover:bg-border-hover hover:text-text-primary"
                 >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <line x1="12" y1="5" x2="12" y2="19" />
-                        <line x1="5" y1="12" x2="19" y2="12" />
-                    </svg>
+                    <LuPlus size={20} />
                 </button>
             </div>
             <div className="flex-1 overflow-y-auto py-2">
@@ -45,10 +43,7 @@ export default function Sidebar({ sessions, activeId, onSelect, onNewSession, on
                     title="Settings"
                     className="w-[30px] h-[30px] bg-transparent border-none text-text-secondary cursor-pointer flex items-center justify-center rounded hover:bg-border-hover hover:text-text-primary"
                 >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <circle cx="12" cy="12" r="3"/>
-                        <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
-                    </svg>
+                    <LuSettings size={18} />
                 </button>
             </div>
         </div>
