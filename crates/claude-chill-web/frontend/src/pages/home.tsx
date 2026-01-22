@@ -1,23 +1,11 @@
-import { useState, useEffect, createContext, useContext } from 'react';
-import { Outlet, useNavigate, useParams } from 'react-router';
+import { useState, useEffect, Activity } from 'react';
+import { useNavigate, useParams } from 'react-router';
 import Sidebar from '@/components/Sidebar';
 import TabBar from '@/components/TabBar';
 import EmptyState from '@/components/EmptyState';
+import SessionView from '@/components/SessionView';
 import NewSessionModal from '@/components/NewSessionModal';
 import type { Session } from '@/components/types';
-
-interface SessionsContextType {
-    sessions: Session[];
-    updateSessionId: (id: string, sessionId: string) => void;
-}
-
-const SessionsContext = createContext<SessionsContextType | null>(null);
-
-export function useSessionsContext() {
-    const ctx = useContext(SessionsContext);
-    if (!ctx) throw new Error('useSessionsContext must be used within SessionsProvider');
-    return ctx;
-}
 
 export default function HomePage() {
     const [sessions, setSessions] = useState<Session[]>([]);
@@ -74,10 +62,8 @@ export default function HomePage() {
         setSessions(prev => prev.map(x => x.id === id ? { ...x, sessionId } : x));
     };
 
-    const activeSession = sessions.find(s => s.id === activeId);
-
     return (
-        <SessionsContext.Provider value={{ sessions, updateSessionId }}>
+        <>
             <Sidebar
                 sessions={sessions}
                 activeId={activeId ?? null}
@@ -100,13 +86,21 @@ export default function HomePage() {
                 <div className="flex-1 relative overflow-hidden">
                     {sessions.length === 0 ? (
                         <EmptyState onNewSession={() => setModalOpen(true)} />
-                    ) : activeSession ? (
-                        <Outlet context={{ session: activeSession }} />
-                    ) : null}
+                    ) : (
+                        sessions.map(s => (
+                            <Activity key={s.id} mode={s.id === activeId ? 'visible' : 'hidden'}>
+                                <SessionView
+                                    sessionData={s}
+                                    isActive={s.id === activeId}
+                                    onSessionIdChange={(sid) => updateSessionId(s.id, sid)}
+                                />
+                            </Activity>
+                        ))
+                    )}
                 </div>
             </div>
 
             <NewSessionModal isOpen={modalOpen} onClose={() => setModalOpen(false)} onCreate={createSession} />
-        </SessionsContext.Provider>
+        </>
     );
 }
