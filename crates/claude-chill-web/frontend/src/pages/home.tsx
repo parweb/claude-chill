@@ -1,15 +1,29 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, createContext, useContext } from 'react';
+import { Outlet, useNavigate, useParams } from 'react-router';
 import Sidebar from '@/components/Sidebar';
 import TabBar from '@/components/TabBar';
 import EmptyState from '@/components/EmptyState';
-import SessionView from '@/components/SessionView';
 import NewSessionModal from '@/components/NewSessionModal';
 import type { Session } from '@/components/types';
 
+interface SessionsContextType {
+    sessions: Session[];
+    updateSessionId: (id: string, sessionId: string) => void;
+}
+
+const SessionsContext = createContext<SessionsContextType | null>(null);
+
+export function useSessionsContext() {
+    const ctx = useContext(SessionsContext);
+    if (!ctx) throw new Error('useSessionsContext must be used within SessionsProvider');
+    return ctx;
+}
+
 export default function HomePage() {
     const [sessions, setSessions] = useState<Session[]>([]);
-    const [activeId, setActiveId] = useState<string | null>(null);
     const [modalOpen, setModalOpen] = useState(false);
+    const navigate = useNavigate();
+    const { sessionId: activeId } = useParams();
 
     useEffect(() => {
         (async () => {
@@ -22,7 +36,7 @@ export default function HomePage() {
                 if (restored.length > 0) {
                     const sessionsWithIds = restored.map((s: Omit<Session, 'id'>, i: number) => ({ ...s, id: `session-${i}` }));
                     setSessions(sessionsWithIds);
-                    setActiveId(sessionsWithIds[0].id);
+                    if (!activeId) navigate(`/session/${sessionsWithIds[0].id}`, { replace: true });
                 }
             } catch (e) {
                 console.error('Failed to restore sessions:', e);
@@ -39,25 +53,35 @@ export default function HomePage() {
     const createSession = (directory: string, name: string) => {
         const id = `session-${Date.now()}`;
         setSessions(prev => [...prev, { id, directory, name, sessionId: null }]);
-        setActiveId(id);
+        navigate(`/session/${id}`);
     };
 
     const closeSession = (id: string) => {
         const session = sessions.find(s => s.id === id);
         if (!session || !confirm(`Close session "${session.name}"?`)) return;
-        setSessions(prev => prev.filter(s => s.id !== id));
+        const remaining = sessions.filter(s => s.id !== id);
+        setSessions(remaining);
         if (activeId === id) {
-            const remaining = sessions.filter(s => s.id !== id);
-            setActiveId(remaining.length > 0 ? remaining[0].id : null);
+            if (remaining.length > 0) {
+                navigate(`/session/${remaining[0].id}`);
+            } else {
+                navigate('/');
+            }
         }
     };
 
+    const updateSessionId = (id: string, sessionId: string) => {
+        setSessions(prev => prev.map(x => x.id === id ? { ...x, sessionId } : x));
+    };
+
+    const activeSession = sessions.find(s => s.id === activeId);
+
     return (
-        <>
+        <SessionsContext.Provider value={{ sessions, updateSessionId }}>
             <Sidebar
                 sessions={sessions}
-                activeId={activeId}
-                onSelect={setActiveId}
+                activeId={activeId ?? null}
+                onSelect={(id) => navigate(`/session/${id}`)}
                 onNewSession={() => setModalOpen(true)}
             />
 
@@ -68,28 +92,21 @@ export default function HomePage() {
 
                 <TabBar
                     sessions={sessions}
-                    activeId={activeId}
-                    onSelect={setActiveId}
+                    activeId={activeId ?? null}
+                    onSelect={(id) => navigate(`/session/${id}`)}
                     onClose={closeSession}
                 />
 
                 <div className="flex-1 relative overflow-hidden">
                     {sessions.length === 0 ? (
                         <EmptyState onNewSession={() => setModalOpen(true)} />
-                    ) : (
-                        sessions.map(s => (
-                            <SessionView
-                                key={s.id}
-                                sessionData={s}
-                                isActive={activeId === s.id}
-                                onSessionIdChange={(sid) => setSessions(prev => prev.map(x => x.id === s.id ? { ...x, sessionId: sid } : x))}
-                            />
-                        ))
-                    )}
+                    ) : activeSession ? (
+                        <Outlet context={{ session: activeSession }} />
+                    ) : null}
                 </div>
             </div>
 
             <NewSessionModal isOpen={modalOpen} onClose={() => setModalOpen(false)} onCreate={createSession} />
-        </>
+        </SessionsContext.Provider>
     );
 }

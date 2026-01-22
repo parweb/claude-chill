@@ -13,7 +13,7 @@ export default function SessionView({ sessionData, isActive, onSessionIdChange }
     if (!session) return null;
 
     return (
-        <div className={`${isActive ? 'block' : 'hidden'} h-full relative`}>
+        <div className="h-full relative">
             <TerminalView session={session} isActive={isActive} />
             {session.ended && (
                 <Button

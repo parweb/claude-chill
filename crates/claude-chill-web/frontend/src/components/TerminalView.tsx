@@ -65,7 +65,7 @@ export default function TerminalView({ session, isActive }: Props) {
     return (
         <div
             ref={containerRef}
-            className={`absolute inset-0 p-2.5 ${isActive ? 'block' : 'hidden'}`}
+            className="absolute inset-0 p-2.5"
         />
     );
 }
