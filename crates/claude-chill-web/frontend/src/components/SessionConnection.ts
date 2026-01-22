@@ -1,5 +1,6 @@
-import type { Terminal } from "@xterm/xterm";
 import type { FitAddon } from "@xterm/addon-fit";
+import type { Terminal } from "@xterm/xterm";
+
 import type { SessionType } from "@/components/types";
 
 export type ConnectionStatus =

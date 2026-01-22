@@ -1,14 +1,15 @@
-import { useState, useEffect, useTransition, Activity } from "react";
+import { Activity, useEffect, useState, useTransition } from "react";
 import { useNavigate, useParams } from "react-router";
-import Sidebar from "@/components/Sidebar";
-import TabBar from "@/components/TabBar";
+
 import EmptyState from "@/components/EmptyState";
-import SessionView from "@/components/SessionView";
 import NewSessionModal, {
   type SessionType,
 } from "@/components/NewSessionModal";
+import SessionView from "@/components/SessionView";
+import Sidebar from "@/components/Sidebar";
+import TabBar from "@/components/TabBar";
 import type { Session } from "@/components/types";
-import { useSessions, useConfig } from "@/lib/api";
+import { useConfig, useSessions } from "@/lib/api";
 
 export default function HomePage() {
   const [sessions, setSessions] = useState<Session[]>([]);

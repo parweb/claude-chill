@@ -1,10 +1,11 @@
+import { LuGlobe, LuLayers, LuX } from "react-icons/lu";
+
 import type { Session, SessionType } from "@/components/types";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { LuLayers, LuGlobe, LuX } from "react-icons/lu";
 
 interface Props {
   sessions: Session[];

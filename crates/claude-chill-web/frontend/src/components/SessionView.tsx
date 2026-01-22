@@ -1,7 +1,7 @@
-import TerminalView from "@/components/TerminalView";
-import useSession from "@/components/useSession";
 import type { ConnectionStatus } from "@/components/SessionConnection";
+import TerminalView from "@/components/TerminalView";
 import type { SessionType } from "@/components/types";
+import useSession from "@/components/useSession";
 
 interface Props {
   sessionData: {

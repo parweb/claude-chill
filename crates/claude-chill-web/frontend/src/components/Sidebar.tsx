@@ -1,5 +1,6 @@
-import type { Session } from "@/components/types";
 import { LuPlus, LuSettings } from "react-icons/lu";
+
+import type { Session } from "@/components/types";
 
 interface Props {
   sessions: Session[];

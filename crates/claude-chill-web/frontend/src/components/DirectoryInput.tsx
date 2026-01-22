@@ -1,5 +1,7 @@
-import { useState, useRef, useMemo, useDeferredValue } from "react";
+import { useDeferredValue, useMemo, useRef, useState } from "react";
+
 import Fuse from "fuse.js";
+
 import { useDirectories } from "@/lib/api";
 
 interface Props {
