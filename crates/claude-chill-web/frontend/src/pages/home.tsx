@@ -19,12 +19,13 @@ export default function HomePage() {
                 const res = await fetch('/api/sessions');
                 const serverSessions: { id: string }[] = await res.json();
                 const serverIds = new Set(serverSessions.map(s => s.id));
-                const saved = JSON.parse(localStorage.getItem('claude-chill-sessions') || '[]');
-                const restored = saved.filter((s: { sessionId: string }) => serverIds.has(s.sessionId));
+                const saved: Session[] = JSON.parse(localStorage.getItem('claude-chill-sessions') || '[]');
+                const restored = saved.filter(s => s.sessionId && serverIds.has(s.sessionId));
                 if (restored.length > 0) {
-                    const sessionsWithIds = restored.map((s: Omit<Session, 'id'>, i: number) => ({ ...s, id: `session-${i}` }));
-                    setSessions(sessionsWithIds);
-                    if (!activeId) navigate(`/session/${sessionsWithIds[0].id}`, { replace: true });
+                    setSessions(restored);
+                    if (!activeId || !restored.some(s => s.id === activeId)) {
+                        navigate(`/session/${restored[0].id}`, { replace: true });
+                    }
                 }
             } catch (e) {
                 console.error('Failed to restore sessions:', e);
@@ -33,13 +34,11 @@ export default function HomePage() {
     }, []);
 
     useEffect(() => {
-        localStorage.setItem('claude-chill-sessions', JSON.stringify(
-            sessions.map(s => ({ sessionId: s.sessionId, directory: s.directory, name: s.name }))
-        ));
+        localStorage.setItem('claude-chill-sessions', JSON.stringify(sessions));
     }, [sessions]);
 
     const createSession = (directory: string, name: string) => {
-        const id = `session-${Date.now()}`;
+        const id = `pending-${Date.now()}`;
         setSessions(prev => [...prev, { id, directory, name, sessionId: null }]);
         navigate(`/session/${id}`);
     };
@@ -58,8 +57,13 @@ export default function HomePage() {
         }
     };
 
-    const updateSessionId = (id: string, sessionId: string) => {
-        setSessions(prev => prev.map(x => x.id === id ? { ...x, sessionId } : x));
+    const updateSessionId = (oldId: string, sessionId: string) => {
+        setSessions(prev => prev.map(s => 
+            s.id === oldId ? { ...s, id: sessionId, sessionId } : s
+        ));
+        if (activeId === oldId) {
+            navigate(`/session/${sessionId}`, { replace: true });
+        }
     };
 
     return (
