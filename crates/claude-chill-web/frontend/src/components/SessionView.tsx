@@ -1,7 +1,13 @@
 import TerminalView from './TerminalView';
 import useSession from './useSession';
 
-export default function SessionView({ sessionData, isActive, onSessionIdChange }) {
+interface Props {
+    sessionData: { directory: string; name: string; sessionId: string | null };
+    isActive: boolean;
+    onSessionIdChange: (id: string) => void;
+}
+
+export default function SessionView({ sessionData, isActive, onSessionIdChange }: Props) {
     const session = useSession(sessionData.directory, sessionData.name, sessionData.sessionId, onSessionIdChange);
     if (!session) return null;
 

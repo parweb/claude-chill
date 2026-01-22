@@ -1,4 +1,13 @@
-export default function Sidebar({ sessions, activeId, onSelect, onNewSession }) {
+import type { Session } from './types';
+
+interface Props {
+    sessions: Session[];
+    activeId: string | null;
+    onSelect: (id: string) => void;
+    onNewSession: () => void;
+}
+
+export default function Sidebar({ sessions, activeId, onSelect, onNewSession }: Props) {
     return (
         <div className="w-[50px] bg-bg-secondary border-r border-border flex flex-col z-[100]">
             <div className="p-2.5 border-b border-border">

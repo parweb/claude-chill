@@ -1,16 +1,24 @@
+import type { Terminal } from '@xterm/xterm';
+import type { FitAddon } from '@xterm/addon-fit';
+
 export default class SessionConnection {
-    constructor(directory, name, sessionId, onStateChange) {
+    directory: string;
+    name: string;
+    sessionId: string | null;
+    onStateChange: () => void;
+    ws: WebSocket | null = null;
+    term: Terminal | null = null;
+    fitAddon: FitAddon | null = null;
+    connected = false;
+    ended = false;
+    reconnectAttempts = 0;
+    maxReconnectAttempts = 10;
+
+    constructor(directory: string, name: string, sessionId: string | null, onStateChange: () => void) {
         this.directory = directory;
         this.name = name;
         this.sessionId = sessionId;
         this.onStateChange = onStateChange;
-        this.ws = null;
-        this.term = null;
-        this.fitAddon = null;
-        this.connected = false;
-        this.ended = false;
-        this.reconnectAttempts = 0;
-        this.maxReconnectAttempts = 10;
     }
 
     connect() {
@@ -36,7 +44,7 @@ export default class SessionConnection {
             }
         };
 
-        this.ws.onmessage = (event) => {
+        this.ws.onmessage = (event: MessageEvent) => {
             if (event.data instanceof ArrayBuffer) {
                 this.term?.write(new Uint8Array(event.data));
             } else {
@@ -76,7 +84,7 @@ export default class SessionConnection {
         setTimeout(() => this.connect(), delay);
     }
 
-    sendInput = (data) => {
+    sendInput = (data: Uint8Array) => {
         if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(data);
     };
 

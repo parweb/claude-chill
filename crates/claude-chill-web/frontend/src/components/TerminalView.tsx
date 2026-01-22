@@ -3,9 +3,15 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
+import SessionConnection from './SessionConnection';
 
-export default function TerminalView({ session, isActive }) {
-    const containerRef = useRef(null);
+interface Props {
+    session: SessionConnection;
+    isActive: boolean;
+}
+
+export default function TerminalView({ session, isActive }: Props) {
+    const containerRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         if (!containerRef.current || session.term) return;
@@ -38,7 +44,7 @@ export default function TerminalView({ session, isActive }) {
     useEffect(() => {
         if (isActive && session.fitAddon) {
             setTimeout(() => {
-                session.fitAddon.fit();
+                session.fitAddon?.fit();
                 session.term?.focus();
                 session.sendResize();
             }, 0);

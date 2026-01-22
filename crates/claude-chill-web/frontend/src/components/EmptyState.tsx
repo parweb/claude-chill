@@ -1,4 +1,8 @@
-export default function EmptyState({ onNewSession }) {
+interface Props {
+    onNewSession: () => void;
+}
+
+export default function EmptyState({ onNewSession }: Props) {
     return (
         <div className="flex flex-col items-center justify-center h-full text-text-muted text-center p-10">
             <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mb-4 opacity-50">

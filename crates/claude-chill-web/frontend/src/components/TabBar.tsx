@@ -1,4 +1,13 @@
-export default function TabBar({ sessions, activeId, onSelect, onClose }) {
+import type { Session } from './types';
+
+interface Props {
+    sessions: Session[];
+    activeId: string | null;
+    onSelect: (id: string) => void;
+    onClose: (id: string) => void;
+}
+
+export default function TabBar({ sessions, activeId, onSelect, onClose }: Props) {
     return (
         <div className="flex bg-bg-tertiary border-b border-border overflow-x-auto shrink-0">
             {sessions.map(s => (

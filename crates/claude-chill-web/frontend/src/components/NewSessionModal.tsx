@@ -1,11 +1,22 @@
 import { useState, useEffect, useRef } from 'react';
 
-export default function NewSessionModal({ isOpen, onClose, onCreate }) {
+interface Props {
+    isOpen: boolean;
+    onClose: () => void;
+    onCreate: (directory: string, name: string) => void;
+}
+
+interface DirEntry {
+    name: string;
+    path: string;
+}
+
+export default function NewSessionModal({ isOpen, onClose, onCreate }: Props) {
     const [directory, setDirectory] = useState('');
     const [name, setName] = useState('');
-    const [suggestions, setSuggestions] = useState([]);
+    const [suggestions, setSuggestions] = useState<DirEntry[]>([]);
     const [error, setError] = useState('');
-    const inputRef = useRef(null);
+    const inputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         if (isOpen) {
@@ -32,7 +43,7 @@ export default function NewSessionModal({ isOpen, onClose, onCreate }) {
         return () => clearTimeout(timer);
     }, [directory]);
 
-    const handleSubmit = (e) => {
+    const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (error) return;
         onCreate(directory, name || directory.split('/').filter(Boolean).pop() || 'Session');

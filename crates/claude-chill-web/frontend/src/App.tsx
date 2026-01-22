@@ -4,22 +4,23 @@ import TabBar from './components/TabBar';
 import EmptyState from './components/EmptyState';
 import SessionView from './components/SessionView';
 import NewSessionModal from './components/NewSessionModal';
+import type { Session } from './components/types';
 
 export default function App() {
-    const [sessions, setSessions] = useState([]);
-    const [activeId, setActiveId] = useState(null);
+    const [sessions, setSessions] = useState<Session[]>([]);
+    const [activeId, setActiveId] = useState<string | null>(null);
     const [modalOpen, setModalOpen] = useState(false);
 
     useEffect(() => {
         (async () => {
             try {
                 const res = await fetch('/api/sessions');
-                const serverSessions = await res.json();
+                const serverSessions: { id: string }[] = await res.json();
                 const serverIds = new Set(serverSessions.map(s => s.id));
                 const saved = JSON.parse(localStorage.getItem('claude-chill-sessions') || '[]');
-                const restored = saved.filter(s => serverIds.has(s.sessionId));
+                const restored = saved.filter((s: { sessionId: string }) => serverIds.has(s.sessionId));
                 if (restored.length > 0) {
-                    const sessionsWithIds = restored.map((s, i) => ({ ...s, id: `session-${i}` }));
+                    const sessionsWithIds = restored.map((s: Omit<Session, 'id'>, i: number) => ({ ...s, id: `session-${i}` }));
                     setSessions(sessionsWithIds);
                     setActiveId(sessionsWithIds[0].id);
                 }
@@ -35,13 +36,13 @@ export default function App() {
         ));
     }, [sessions]);
 
-    const createSession = (directory, name) => {
+    const createSession = (directory: string, name: string) => {
         const id = `session-${Date.now()}`;
         setSessions(prev => [...prev, { id, directory, name, sessionId: null }]);
         setActiveId(id);
     };
 
-    const closeSession = (id) => {
+    const closeSession = (id: string) => {
         const session = sessions.find(s => s.id === id);
         if (!session || !confirm(`Close session "${session.name}"?`)) return;
         setSessions(prev => prev.filter(s => s.id !== id));

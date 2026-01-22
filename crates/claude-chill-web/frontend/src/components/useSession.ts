@@ -1,9 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
 import SessionConnection from './SessionConnection';
 
-export default function useSession(directory, name, initialSessionId, onSessionIdChange) {
+export default function useSession(
+    directory: string,
+    name: string,
+    initialSessionId: string | null,
+    onSessionIdChange: (id: string) => void
+): SessionConnection | null {
     const [, forceUpdate] = useState({});
-    const sessionRef = useRef(null);
+    const sessionRef = useRef<SessionConnection | null>(null);
 
     useEffect(() => {
         const session = new SessionConnection(directory, name, initialSessionId, () => {
