@@ -57,6 +57,7 @@ impl Session {
 }
 
 #[derive(Clone, Copy, Debug)]
+#[allow(dead_code)]
 pub enum SessionType {
     Claude,
     Kiro,

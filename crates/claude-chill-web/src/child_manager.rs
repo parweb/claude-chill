@@ -9,22 +9,6 @@ pub enum InputEvent {
     Resize { rows: u16, cols: u16 },
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
-#[serde(tag = "type")]
-pub enum OutputEvent {
-    Data { data: Vec<u8> },
-    InputRequested { prompt: String, input_type: InputType },
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum InputType {
-    Confirm,
-    Text,
-    Password,
-    Choice,
-}
-
 pub struct ChildManager {
     child: Child,
     stdin: Arc<Mutex<ChildStdin>>,
@@ -32,7 +16,6 @@ pub struct ChildManager {
     stderr: Option<tokio::process::ChildStderr>,
     broadcast_tx: broadcast::Sender<Vec<u8>>,
     input_rx: mpsc::Receiver<InputEvent>,
-    pending_output: String,
 }
 
 impl ChildManager {
@@ -82,11 +65,6 @@ impl ChildManager {
 
         let stderr = child.stderr.take();
 
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| anyhow::anyhow!("Failed to capture stdout"))?;
-
         tracing::info!("Child process spawned successfully (PID: {:?})", child.id());
 
         Ok(Self {
@@ -96,30 +74,7 @@ impl ChildManager {
             stderr,
             broadcast_tx,
             input_rx,
-            pending_output: String::new(),
         })
-    }
-
-    /// Detect if output looks like an input prompt
-    fn detect_input_request(text: &str) -> Option<(String, InputType)> {
-        let trimmed = text.trim_end();
-        let last_line = trimmed.lines().last().unwrap_or("");
-        
-        // Common prompt patterns
-        if last_line.ends_with("(y/n)") || last_line.ends_with("(Y/n)") || last_line.ends_with("(y/N)") {
-            return Some((last_line.to_string(), InputType::Confirm));
-        }
-        if last_line.ends_with("?") && last_line.len() < 200 {
-            return Some((last_line.to_string(), InputType::Text));
-        }
-        if last_line.to_lowercase().contains("password") && last_line.ends_with(":") {
-            return Some((last_line.to_string(), InputType::Password));
-        }
-        if last_line.ends_with(":") && last_line.len() < 100 {
-            return Some((last_line.to_string(), InputType::Text));
-        }
-        
-        None
     }
 
     pub async fn run(&mut self) -> anyhow::Result<()> {
@@ -215,22 +170,6 @@ impl ChildManager {
 
     async fn process_output(&mut self, data: &[u8]) {
         tracing::trace!("Processing {} bytes of output", data.len());
-
-        // Try to detect input prompts
-        if let Ok(text) = std::str::from_utf8(data) {
-            self.pending_output.push_str(text);
-            if self.pending_output.len() > 1024 {
-                let mut start = self.pending_output.len() - 1024;
-                while !self.pending_output.is_char_boundary(start) && start < self.pending_output.len() {
-                    start += 1;
-                }
-                self.pending_output = self.pending_output[start..].to_string();
-            }
-            
-            if let Some((prompt, input_type)) = Self::detect_input_request(&self.pending_output) {
-                tracing::info!("Input prompt detected: {:?} (type: {:?})", prompt, input_type);
-            }
-        }
 
         // Broadcast to all connected clients
         if let Err(e) = self.broadcast_tx.send(data.to_vec()) {
