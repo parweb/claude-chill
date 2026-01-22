@@ -4,6 +4,7 @@ use tokio::sync::{broadcast, mpsc, watch, Mutex, RwLock};
 use uuid::Uuid;
 
 use crate::pty_manager::{InputEvent, PtyManager};
+use crate::server::SessionType;
 
 const MAX_HISTORY_BYTES: usize = 512 * 1024; // 512KB of history
 
@@ -56,13 +57,6 @@ impl Session {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-#[allow(dead_code)]
-pub enum SessionType {
-    Claude,
-    Kiro,
-}
-
 #[derive(Clone)]
 pub struct SessionStore {
     sessions: Arc<RwLock<HashMap<Uuid, Arc<Session>>>>,
@@ -79,7 +73,7 @@ impl SessionStore {
         }
     }
 
-    pub async fn create(&self, directory: Option<String>, session_type: crate::server::SessionType) -> Arc<Session> {
+    pub async fn create(&self, directory: Option<String>, session_type: SessionType) -> Arc<Session> {
         let id = Uuid::new_v4();
         let (input_tx, input_rx) = mpsc::channel(100);
         let (broadcast_tx, _) = broadcast::channel(1024);
@@ -99,8 +93,8 @@ impl SessionStore {
 
         // Determine command based on session type
         let (command, args) = match session_type {
-            crate::server::SessionType::Claude => (self.claude_command.clone(), self.claude_args.clone()),
-            crate::server::SessionType::Kiro => ("kiro-cli".to_string(), vec!["chat".to_string()]),
+            SessionType::Claude => (self.claude_command.clone(), self.claude_args.clone()),
+            SessionType::Kiro => ("kiro-cli".to_string(), vec!["chat".to_string()]),
         };
 
         // Spawn PTY process
