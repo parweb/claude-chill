@@ -1,6 +1,8 @@
 import type { Terminal } from '@xterm/xterm';
 import type { FitAddon } from '@xterm/addon-fit';
 
+export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'ended';
+
 export default class SessionConnection {
     directory: string;
     name: string;
@@ -9,8 +11,7 @@ export default class SessionConnection {
     ws: WebSocket | null = null;
     term: Terminal | null = null;
     fitAddon: FitAddon | null = null;
-    connected = false;
-    ended = false;
+    status: ConnectionStatus = 'connecting';
     reconnectAttempts = 0;
     maxReconnectAttempts = 10;
     pendingData: Uint8Array[] = [];
@@ -33,7 +34,7 @@ export default class SessionConnection {
         this.ws.binaryType = 'arraybuffer';
 
         this.ws.onopen = () => {
-            this.connected = true;
+            this.status = 'connected';
             this.reconnectAttempts = 0;
             this.onStateChange();
             this.sendResize();
@@ -55,7 +56,7 @@ export default class SessionConnection {
                         this.sessionId = msg.id;
                         this.onStateChange();
                     } else if (msg.type === 'SessionEnded') {
-                        this.ended = true;
+                        this.status = 'ended';
                         this.writeToTerm(`\r\n\x1b[33m● Session ended\x1b[0m\r\n`);
                         this.onStateChange();
                     }
@@ -66,9 +67,11 @@ export default class SessionConnection {
         };
 
         this.ws.onclose = () => {
-            this.connected = false;
-            this.onStateChange();
-            if (!this.ended) this.reconnect();
+            if (this.status !== 'ended') {
+                this.status = 'disconnected';
+                this.onStateChange();
+                this.reconnect();
+            }
         };
 
         this.ws.onerror = (e) => console.error('WebSocket error:', e);
@@ -116,7 +119,7 @@ export default class SessionConnection {
 
     restart = () => {
         this.sessionId = null;
-        this.ended = false;
+        this.status = 'connecting';
         this.reconnectAttempts = 0;
         this.term?.clear();
         this.onStateChange();

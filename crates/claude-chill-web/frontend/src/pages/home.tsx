@@ -21,7 +21,8 @@ export default function HomePage() {
                 const serverSessions: { id: string }[] = await res.json();
                 const serverIds = new Set(serverSessions.map(s => s.id));
                 const saved: Session[] = JSON.parse(localStorage.getItem('claude-chill-sessions') || '[]');
-                const restored = saved.filter(s => s.sessionId && serverIds.has(s.sessionId));
+                const restored = saved.filter(s => s.sessionId && serverIds.has(s.sessionId))
+                    .map(s => ({ ...s, status: 'connecting' as const }));
                 if (restored.length > 0) {
                     setSessions(restored);
                     if (!activeId || !restored.some(s => s.id === activeId)) {
@@ -43,7 +44,7 @@ export default function HomePage() {
 
     const createSession = (directory: string, name: string) => {
         const id = `pending-${Date.now()}`;
-        setSessions(prev => [...prev, { id, directory, name, sessionId: null }]);
+        setSessions(prev => [...prev, { id, directory, name, sessionId: null, status: 'connecting' }]);
         navigate(`/session/${id}`);
     };
 
@@ -70,6 +71,10 @@ export default function HomePage() {
         }
     };
 
+    const updateSessionStatus = (id: string, status: Session['status']) => {
+        setSessions(prev => prev.map(s => s.id === id ? { ...s, status } : s));
+    };
+
     return (
         <>
             <Sidebar
@@ -80,10 +85,6 @@ export default function HomePage() {
             />
 
             <div className="flex-1 flex flex-col overflow-hidden">
-                <div className="fixed top-0 right-0 px-4 py-2 bg-black/80 text-white text-xs font-medium z-[1000] rounded-bl">
-                    <span className="text-success">● Ready</span>
-                </div>
-
                 <TabBar
                     sessions={sessions}
                     activeId={activeId ?? null}
@@ -101,6 +102,7 @@ export default function HomePage() {
                                     sessionData={s}
                                     isActive={s.id === activeId}
                                     onSessionIdChange={(sid) => updateSessionId(s.id, sid)}
+                                    onStatusChange={(status) => updateSessionStatus(s.id, status)}
                                 />
                             </Activity>
                         ))

@@ -3,4 +3,5 @@ export interface Session {
     directory: string;
     name: string;
     sessionId: string | null;
+    status: 'connecting' | 'connected' | 'disconnected' | 'ended';
 }
