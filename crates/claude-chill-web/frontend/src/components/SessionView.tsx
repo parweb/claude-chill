@@ -1,5 +1,6 @@
 import TerminalView from '@/components/TerminalView';
 import useSession from '@/components/useSession';
+import { Button } from '@/components/ui/button';
 
 interface Props {
     sessionData: { directory: string; name: string; sessionId: string | null };
@@ -15,12 +16,12 @@ export default function SessionView({ sessionData, isActive, onSessionIdChange }
         <div className={`${isActive ? 'block' : 'hidden'} h-full relative`}>
             <TerminalView session={session} isActive={isActive} />
             {session.ended && (
-                <button
+                <Button
                     onClick={session.restart}
-                    className="absolute bottom-5 left-1/2 -translate-x-1/2 px-5 py-2.5 bg-accent text-white border-none rounded text-sm cursor-pointer z-10 hover:bg-accent-hover"
+                    className="absolute bottom-5 left-1/2 -translate-x-1/2 z-10"
                 >
                     ↻ Restart Session
-                </button>
+                </Button>
             )}
         </div>
     );
