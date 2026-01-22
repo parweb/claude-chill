@@ -29,6 +29,7 @@ pub struct ChildManager {
     child: Child,
     stdin: Arc<Mutex<ChildStdin>>,
     stdout: ChildStdout,
+    stderr: Option<tokio::process::ChildStderr>,
     broadcast_tx: broadcast::Sender<Vec<u8>>,
     input_rx: mpsc::Receiver<InputEvent>,
     pending_output: String,
@@ -53,7 +54,7 @@ impl ChildManager {
         cmd.args(&args)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::inherit()); // Let stderr pass through for debugging
+            .stderr(std::process::Stdio::piped());
 
         // Set working directory if provided
         if let Some(ref dir) = current_dir {
@@ -79,12 +80,20 @@ impl ChildManager {
             .take()
             .ok_or_else(|| anyhow::anyhow!("Failed to capture stdout"))?;
 
+        let stderr = child.stderr.take();
+
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("Failed to capture stdout"))?;
+
         tracing::info!("Child process spawned successfully (PID: {:?})", child.id());
 
         Ok(Self {
             child,
             stdin: Arc::new(Mutex::new(stdin)),
             stdout,
+            stderr,
             broadcast_tx,
             input_rx,
             pending_output: String::new(),
@@ -114,43 +123,23 @@ impl ChildManager {
     }
 
     pub async fn run(&mut self) -> anyhow::Result<()> {
-        let mut buf = vec![0u8; 8192];
+        let mut stdout_buf = vec![0u8; 8192];
+        let mut stderr_buf = vec![0u8; 8192];
+
+        // Take stderr out of self to use in select
+        let mut stderr = self.stderr.take();
 
         loop {
             tokio::select! {
                 // Read from child stdout and broadcast to clients
-                result = self.stdout.read(&mut buf) => {
+                result = self.stdout.read(&mut stdout_buf) => {
                     match result {
                         Ok(0) => {
-                            // EOF - child stdout closed
                             tracing::info!("Child stdout closed (EOF)");
                             break;
                         }
                         Ok(n) => {
-                            tracing::trace!("Read {} bytes from child stdout", n);
-
-                            // Try to detect input prompts
-                            if let Ok(text) = std::str::from_utf8(&buf[..n]) {
-                                self.pending_output.push_str(text);
-                                // Keep only last 1KB for prompt detection
-                                if self.pending_output.len() > 1024 {
-                                    // Find a valid char boundary
-                                    let mut start = self.pending_output.len() - 1024;
-                                    while !self.pending_output.is_char_boundary(start) && start < self.pending_output.len() {
-                                        start += 1;
-                                    }
-                                    self.pending_output = self.pending_output[start..].to_string();
-                                }
-                                
-                                if let Some((prompt, input_type)) = Self::detect_input_request(&self.pending_output) {
-                                    tracing::info!("Input prompt detected: {:?} (type: {:?})", prompt, input_type);
-                                }
-                            }
-
-                            // Broadcast to all connected clients
-                            if let Err(e) = self.broadcast_tx.send(buf[..n].to_vec()) {
-                                tracing::warn!("Failed to broadcast data: {}", e);
-                            }
+                            self.process_output(&stdout_buf[..n]).await;
                         }
                         Err(e) => {
                             tracing::error!("Error reading from child stdout: {}", e);
@@ -159,7 +148,28 @@ impl ChildManager {
                     }
                 }
 
-                // Receive input events from WebSocket clients and write to child stdin
+                // Read from child stderr and broadcast to clients
+                result = async {
+                    match &mut stderr {
+                        Some(s) => s.read(&mut stderr_buf).await,
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    match result {
+                        Ok(0) => {
+                            stderr = None; // EOF on stderr
+                        }
+                        Ok(n) => {
+                            self.process_output(&stderr_buf[..n]).await;
+                        }
+                        Err(e) => {
+                            tracing::warn!("Error reading from child stderr: {}", e);
+                            stderr = None;
+                        }
+                    }
+                }
+
+                // Receive input events from WebSocket clients
                 Some(event) = self.input_rx.recv() => {
                     match event {
                         InputEvent::Data(data) => {
@@ -175,7 +185,6 @@ impl ChildManager {
                             }
                         }
                         InputEvent::Resize { rows, cols } => {
-                            // Cannot resize PTY after spawn
                             tracing::warn!(
                                 "Resize event received ({}x{}), but resize not supported after spawn",
                                 rows,
@@ -190,9 +199,6 @@ impl ChildManager {
                     match status {
                         Ok(exit_status) => {
                             tracing::info!("Child process exited: {}", exit_status);
-                            if !exit_status.success() {
-                                tracing::warn!("Child process exited with non-zero status");
-                            }
                         }
                         Err(e) => {
                             tracing::error!("Error waiting for child process: {}", e);
@@ -205,5 +211,30 @@ impl ChildManager {
 
         tracing::info!("Child manager shutting down");
         Ok(())
+    }
+
+    async fn process_output(&mut self, data: &[u8]) {
+        tracing::trace!("Processing {} bytes of output", data.len());
+
+        // Try to detect input prompts
+        if let Ok(text) = std::str::from_utf8(data) {
+            self.pending_output.push_str(text);
+            if self.pending_output.len() > 1024 {
+                let mut start = self.pending_output.len() - 1024;
+                while !self.pending_output.is_char_boundary(start) && start < self.pending_output.len() {
+                    start += 1;
+                }
+                self.pending_output = self.pending_output[start..].to_string();
+            }
+            
+            if let Some((prompt, input_type)) = Self::detect_input_request(&self.pending_output) {
+                tracing::info!("Input prompt detected: {:?} (type: {:?})", prompt, input_type);
+            }
+        }
+
+        // Broadcast to all connected clients
+        if let Err(e) = self.broadcast_tx.send(data.to_vec()) {
+            tracing::warn!("Failed to broadcast data: {}", e);
+        }
     }
 }

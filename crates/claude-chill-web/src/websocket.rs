@@ -62,6 +62,7 @@ impl WebSocketHandler {
                 result = broadcast_rx.recv() => {
                     match result {
                         Ok(data) => {
+                            tracing::debug!("Sending {} bytes to WebSocket", data.len());
                             if ws_tx.send(Message::Binary(data)).await.is_err() {
                                 break;
                             }
