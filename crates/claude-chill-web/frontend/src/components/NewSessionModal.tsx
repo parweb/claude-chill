@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import DirectoryInput from '@/components/DirectoryInput';
+import { useConfig, useDirectories } from '@/lib/api';
 
 export type SessionType = 'claude' | 'kiro';
 
@@ -13,45 +14,21 @@ export default function NewSessionModal({ isOpen, onClose, onCreate }: Props) {
     const [directory, setDirectory] = useState('');
     const [name, setName] = useState('');
     const [sessionType, setSessionType] = useState<SessionType>('claude');
-    const [error, setError] = useState('');
-    const [ready, setReady] = useState(false);
+
+    const { data: config } = useConfig();
+    
+    const lastSlash = directory.lastIndexOf('/');
+    const parentPath = directory.substring(0, lastSlash) || '/';
+    const { data: dirData } = useDirectories(parentPath);
+    const error = dirData && !dirData.exists ? 'Directory does not exist' : '';
 
     useEffect(() => {
-        if (isOpen) {
-            fetch('/api/config')
-                .then(res => res.json())
-                .then(data => {
-                    setDirectory(data.default_directory + '/');
-                    setReady(true);
-                })
-                .catch(() => {
-                    setDirectory('/');
-                    setReady(true);
-                });
+        if (isOpen && config) {
+            setDirectory(config.default_directory + '/');
             setName('');
             setSessionType('claude');
-            setError('');
-        } else {
-            setReady(false);
         }
-    }, [isOpen]);
-
-    // Validate directory exists
-    useEffect(() => {
-        if (!directory) return;
-        const timer = setTimeout(async () => {
-            const lastSlash = directory.lastIndexOf('/');
-            const parentPath = directory.substring(0, lastSlash) || '/';
-            try {
-                const res = await fetch(`/api/directories?path=${encodeURIComponent(parentPath)}`);
-                const data = await res.json();
-                setError(data.exists ? '' : 'Directory does not exist');
-            } catch {
-                setError('');
-            }
-        }, 200);
-        return () => clearTimeout(timer);
-    }, [directory]);
+    }, [isOpen, config]);
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -86,7 +63,7 @@ export default function NewSessionModal({ isOpen, onClose, onCreate }: Props) {
                             value={directory}
                             onChange={setDirectory}
                             error={error}
-                            autoFocus={ready}
+                            autoFocus={isOpen && !!config}
                         />
                         <small className={`block mt-1.5 text-xs ${error ? 'text-error' : 'text-text-muted'}`}>
                             {error || 'Type to search directories (fuzzy match)'}

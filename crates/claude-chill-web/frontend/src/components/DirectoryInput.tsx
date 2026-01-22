@@ -1,10 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import Fuse from 'fuse.js';
-
-interface DirEntry {
-    name: string;
-    path: string;
-}
+import { useDirectories } from '@/lib/api';
 
 interface Props {
     value: string;
@@ -15,58 +11,41 @@ interface Props {
 }
 
 export default function DirectoryInput({ value, onChange, error, placeholder = '/path/to/directory', autoFocus }: Props) {
-    const [suggestions, setSuggestions] = useState<DirEntry[]>([]);
     const [selectedIndex, setSelectedIndex] = useState(-1);
     const [focused, setFocused] = useState(false);
     const inputRef = useRef<HTMLInputElement>(null);
+
+    const lastSlash = value.lastIndexOf('/');
+    const parentPath = value.substring(0, lastSlash) || '/';
+    const partial = value.substring(lastSlash + 1).toLowerCase();
+
+    const { data } = useDirectories(parentPath);
+
+    const suggestions = useMemo(() => {
+        if (!data?.entries?.length) return [];
+        if (!partial) return data.entries.slice(0, 10);
+        const fuse = new Fuse(data.entries, { keys: ['name'], threshold: 0.4 });
+        return fuse.search(partial).slice(0, 10).map(r => r.item);
+    }, [data?.entries, partial]);
 
     useEffect(() => {
         if (autoFocus) inputRef.current?.focus();
     }, [autoFocus]);
 
     useEffect(() => {
-        if (!value) return;
-        const timer = setTimeout(async () => {
-            const lastSlash = value.lastIndexOf('/');
-            const parentPath = value.substring(0, lastSlash) || '/';
-            const partial = value.substring(lastSlash + 1).toLowerCase();
+        setSelectedIndex(-1);
+    }, [suggestions]);
 
-            try {
-                const res = await fetch(`/api/directories?path=${encodeURIComponent(parentPath)}`);
-                const data = await res.json();
-
-                if (!data.entries?.length) {
-                    setSuggestions([]);
-                    return;
-                }
-
-                // Use Fuse.js for fuzzy search
-                if (partial) {
-                    const fuse = new Fuse(data.entries, { keys: ['name'], threshold: 0.4 });
-                    const results = fuse.search(partial).slice(0, 10);
-                    setSuggestions(results.map(r => r.item));
-                } else {
-                    setSuggestions(data.entries.slice(0, 10));
-                }
-                setSelectedIndex(-1);
-            } catch {
-                setSuggestions([]);
-            }
-        }, 150);
-        return () => clearTimeout(timer);
-    }, [value]);
-
-    const selectSuggestion = (s: DirEntry) => {
+    const selectSuggestion = (s: { path: string }) => {
         onChange(s.path + '/');
-        setSuggestions([]);
         setSelectedIndex(-1);
         inputRef.current?.focus();
     };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === 'Escape') {
-            setSuggestions([]);
             setSelectedIndex(-1);
+            inputRef.current?.blur();
         } else if (e.key === 'ArrowDown' && suggestions.length > 0) {
             e.preventDefault();
             setSelectedIndex(i => Math.min(i + 1, suggestions.length - 1));

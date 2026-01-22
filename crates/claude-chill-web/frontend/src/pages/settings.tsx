@@ -1,27 +1,21 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import DirectoryInput from '@/components/DirectoryInput';
+import { useConfig, useUpdateConfig } from '@/lib/api';
 
 export default function SettingsPage() {
     const [defaultDir, setDefaultDir] = useState('');
-    const [saved, setSaved] = useState(false);
     const navigate = useNavigate();
+    
+    const { data: config } = useConfig();
+    const updateConfig = useUpdateConfig();
 
     useEffect(() => {
-        fetch('/api/config')
-            .then(res => res.json())
-            .then(data => setDefaultDir(data.default_directory));
-    }, []);
+        if (config) setDefaultDir(config.default_directory);
+    }, [config]);
 
     const save = () => {
-        fetch('/api/config', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ default_directory: defaultDir }),
-        }).then(() => {
-            setSaved(true);
-            setTimeout(() => setSaved(false), 2000);
-        });
+        updateConfig.mutate({ default_directory: defaultDir });
     };
 
     return (
@@ -56,11 +50,12 @@ export default function SettingsPage() {
                     <div className="flex items-center gap-3">
                         <button
                             onClick={save}
-                            className="px-4 py-2 bg-accent border-none rounded text-sm font-medium text-white cursor-pointer hover:bg-accent-hover"
+                            disabled={updateConfig.isPending}
+                            className="px-4 py-2 bg-accent border-none rounded text-sm font-medium text-white cursor-pointer hover:bg-accent-hover disabled:opacity-50"
                         >
-                            Save
+                            {updateConfig.isPending ? 'Saving...' : 'Save'}
                         </button>
-                        {saved && <span className="text-success text-sm">✓ Saved</span>}
+                        {updateConfig.isSuccess && <span className="text-success text-sm">✓ Saved</span>}
                     </div>
                 </div>
             </div>
