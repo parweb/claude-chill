@@ -5,9 +5,10 @@ interface Props {
     activeId: string | null;
     onSelect: (id: string) => void;
     onNewSession: () => void;
+    onSettings: () => void;
 }
 
-export default function Sidebar({ sessions, activeId, onSelect, onNewSession }: Props) {
+export default function Sidebar({ sessions, activeId, onSelect, onNewSession, onSettings }: Props) {
     return (
         <div className="w-[50px] bg-bg-secondary border-r border-border flex flex-col z-[100]">
             <div className="p-2.5 border-b border-border">
@@ -37,6 +38,18 @@ export default function Sidebar({ sessions, activeId, onSelect, onNewSession }: 
                         {s.name.substring(0, 2).toUpperCase()}
                     </div>
                 ))}
+            </div>
+            <div className="p-2.5 border-t border-border">
+                <button
+                    onClick={onSettings}
+                    title="Settings"
+                    className="w-[30px] h-[30px] bg-transparent border-none text-text-secondary cursor-pointer flex items-center justify-center rounded hover:bg-border-hover hover:text-text-primary"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <circle cx="12" cy="12" r="3"/>
+                        <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+                    </svg>
+                </button>
             </div>
         </div>
     );

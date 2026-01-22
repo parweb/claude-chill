@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route } from 'react-router';
 import '@/index.css';
 import App from '@/App';
 import HomePage from '@/pages/home';
+import SettingsPage from '@/pages/settings';
 
 createRoot(document.getElementById('root')!).render(
     <StrictMode>
@@ -12,6 +13,7 @@ createRoot(document.getElementById('root')!).render(
                 <Route path="/" element={<App />}>
                     <Route index element={<HomePage />} />
                     <Route path="session/:sessionId" element={<HomePage />} />
+                    <Route path="settings" element={<SettingsPage />} />
                 </Route>
             </Routes>
         </BrowserRouter>

@@ -21,25 +21,19 @@ export default function NewSessionModal({ isOpen, onClose, onCreate }: Props) {
     const [selectedIndex, setSelectedIndex] = useState(-1);
     const [focused, setFocused] = useState(false);
     const [error, setError] = useState('');
-    const [showSettings, setShowSettings] = useState(false);
-    const [defaultDir, setDefaultDir] = useState('');
     const inputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         if (isOpen) {
             fetch('/api/config')
                 .then(res => res.json())
-                .then(data => {
-                    setDefaultDir(data.default_directory);
-                    setDirectory(data.default_directory + '/');
-                })
+                .then(data => setDirectory(data.default_directory + '/'))
                 .catch(() => setDirectory('/'));
             setName('');
             setSessionType('claude');
             setError('');
             setSuggestions([]);
             setSelectedIndex(-1);
-            setShowSettings(false);
             setTimeout(() => inputRef.current?.focus(), 100);
         }
     }, [isOpen]);
@@ -104,14 +98,6 @@ export default function NewSessionModal({ isOpen, onClose, onCreate }: Props) {
         onClose();
     };
 
-    const saveDefaultDir = () => {
-        fetch('/api/config', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ default_directory: defaultDir }),
-        }).then(() => setShowSettings(false));
-    };
-
     if (!isOpen) return null;
 
     return (
@@ -121,60 +107,14 @@ export default function NewSessionModal({ isOpen, onClose, onCreate }: Props) {
         >
             <div className="bg-bg-secondary rounded-lg w-[90%] max-w-[500px] shadow-xl">
                 <div className="p-5 border-b border-border flex justify-between items-center">
-                    <h2 className="text-text-primary text-lg font-medium m-0">
-                        {showSettings ? 'Settings' : 'New Session'}
-                    </h2>
-                    <div className="flex gap-2">
-                        <button
-                            onClick={() => setShowSettings(!showSettings)}
-                            className="w-[30px] h-[30px] bg-transparent border-none text-text-secondary text-lg cursor-pointer flex items-center justify-center rounded hover:bg-border-hover hover:text-text-primary"
-                            title="Settings"
-                        >
-                            ⚙
-                        </button>
-                        <button
-                            onClick={onClose}
-                            className="w-[30px] h-[30px] bg-transparent border-none text-text-secondary text-[28px] cursor-pointer flex items-center justify-center rounded hover:bg-border-hover hover:text-text-primary"
-                        >
-                            ×
-                        </button>
-                    </div>
+                    <h2 className="text-text-primary text-lg font-medium m-0">New Session</h2>
+                    <button
+                        onClick={onClose}
+                        className="w-[30px] h-[30px] bg-transparent border-none text-text-secondary text-[28px] cursor-pointer flex items-center justify-center rounded hover:bg-border-hover hover:text-text-primary"
+                    >
+                        ×
+                    </button>
                 </div>
-                {showSettings ? (
-                    <div className="p-5">
-                        <div className="mb-5">
-                            <label className="block text-text-secondary text-[13px] font-medium mb-2">
-                                Default Directory:
-                            </label>
-                            <input
-                                type="text"
-                                value={defaultDir}
-                                onChange={(e) => setDefaultDir(e.target.value)}
-                                className="w-full px-3 py-2.5 bg-bg-tertiary border border-border rounded text-text-primary text-sm outline-none focus:border-accent"
-                                placeholder="/path/to/projects"
-                            />
-                            <small className="block mt-1.5 text-xs text-text-muted">
-                                This will be the starting directory for new sessions
-                            </small>
-                        </div>
-                        <div className="flex justify-end gap-2.5 pt-2.5">
-                            <button
-                                type="button"
-                                onClick={() => setShowSettings(false)}
-                                className="px-4 py-2 bg-border border-none rounded text-[13px] font-medium text-text-secondary cursor-pointer hover:bg-border-hover hover:text-text-primary"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                type="button"
-                                onClick={saveDefaultDir}
-                                className="px-4 py-2 bg-accent border-none rounded text-[13px] font-medium text-white cursor-pointer hover:bg-accent-hover"
-                            >
-                                Save
-                            </button>
-                        </div>
-                    </div>
-                ) : (
                 <form onSubmit={handleSubmit} className="p-5">
                     <div className="mb-5">
                         <label className="block text-text-secondary text-[13px] font-medium mb-2">
@@ -275,7 +215,6 @@ export default function NewSessionModal({ isOpen, onClose, onCreate }: Props) {
                         </button>
                     </div>
                 </form>
-                )}
             </div>
         </div>
     );

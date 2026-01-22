@@ -82,6 +82,7 @@ export default function HomePage() {
                 activeId={activeId ?? null}
                 onSelect={(id) => navigate(`/session/${id}`)}
                 onNewSession={() => setModalOpen(true)}
+                onSettings={() => navigate('/settings')}
             />
 
             <div className="flex-1 flex flex-col overflow-hidden">
