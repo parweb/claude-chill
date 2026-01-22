@@ -16,6 +16,7 @@ export default function NewSessionModal({ isOpen, onClose, onCreate }: Props) {
     const [name, setName] = useState('');
     const [suggestions, setSuggestions] = useState<DirEntry[]>([]);
     const [selectedIndex, setSelectedIndex] = useState(-1);
+    const [focused, setFocused] = useState(false);
     const [error, setError] = useState('');
     const inputRef = useRef<HTMLInputElement>(null);
 
@@ -119,13 +120,15 @@ export default function NewSessionModal({ isOpen, onClose, onCreate }: Props) {
                                 value={directory}
                                 onChange={(e) => setDirectory(e.target.value)}
                                 onKeyDown={handleKeyDown}
+                                onFocus={() => setFocused(true)}
+                                onBlur={() => setTimeout(() => setFocused(false), 150)}
                                 className={`w-full px-3 py-2.5 bg-bg-tertiary rounded text-text-primary text-sm outline-none border ${
                                     error ? 'border-error' : 'border-border focus:border-accent'
                                 }`}
                                 placeholder="/path/to/project"
                                 autoComplete="off"
                             />
-                            {suggestions.length > 0 && (
+                            {focused && suggestions.length > 0 && (
                                 <div className="absolute top-full left-0 right-0 bg-bg-tertiary border border-t-0 border-border rounded-b max-h-[200px] overflow-y-auto z-10">
                                     {suggestions.map((s, i) => (
                                         <div
