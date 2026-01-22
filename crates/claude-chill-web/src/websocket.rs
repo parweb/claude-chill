@@ -3,7 +3,7 @@ use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-use crate::child_manager::InputEvent;
+use crate::pty_manager::InputEvent;
 use crate::session::Session;
 
 #[derive(Debug, Deserialize)]

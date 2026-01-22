@@ -1,5 +1,5 @@
-mod child_manager;
 mod config;
+mod pty_manager;
 mod server;
 mod session;
 mod websocket;

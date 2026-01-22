@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, watch, Mutex, RwLock};
 use uuid::Uuid;
 
-use crate::child_manager::{ChildManager, InputEvent};
+use crate::pty_manager::{InputEvent, PtyManager};
 
 const MAX_HISTORY_BYTES: usize = 512 * 1024; // 512KB of history
 
@@ -98,22 +98,17 @@ impl SessionStore {
         });
 
         // Determine command based on session type
-        // Use unbuffer to force PTY allocation for Kiro (it needs a TTY)
         let (command, args) = match session_type {
             crate::server::SessionType::Claude => (self.claude_command.clone(), self.claude_args.clone()),
-            crate::server::SessionType::Kiro => ("unbuffer".to_string(), vec![
-                "-p".to_string(),
-                "kiro-cli".to_string(),
-                "chat".to_string(),
-            ]),
+            crate::server::SessionType::Kiro => ("kiro-cli".to_string(), vec!["chat".to_string()]),
         };
 
-        // Spawn child process
+        // Spawn PTY process
         let sessions = self.sessions.clone();
         tokio::spawn(async move {
-            match ChildManager::spawn(command, args, directory, broadcast_tx, input_rx).await {
-                Ok(mut manager) => {
-                    tracing::info!("Child manager started for session {}", id);
+            match PtyManager::spawn(command, args, directory, 24, 80, broadcast_tx, input_rx) {
+                Ok(manager) => {
+                    tracing::info!("PTY manager started for session {}", id);
                     if let Err(e) = manager.run().await {
                         tracing::error!("Session {} error: {}", id, e);
                     }
