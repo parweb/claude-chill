@@ -11,17 +11,21 @@ export default function useSession(
     const [, forceUpdate] = useState({});
     const sessionRef = useRef<SessionConnection | null>(null);
 
-    useEffect(() => {
-        const session = new SessionConnection(directory, name, initialSessionId, () => {
+    // Create session once, never cleanup (Activity will hide/show but WS stays open)
+    if (!sessionRef.current) {
+        sessionRef.current = new SessionConnection(directory, name, initialSessionId, () => {
             forceUpdate({});
-            if (session.sessionId && session.sessionId !== initialSessionId) {
-                onSessionIdChange(session.sessionId);
+            if (sessionRef.current?.sessionId && sessionRef.current.sessionId !== initialSessionId) {
+                onSessionIdChange(sessionRef.current.sessionId);
             }
-            onStatusChange(session.status);
+            if (sessionRef.current) {
+                onStatusChange(sessionRef.current.status);
+            }
         });
-        sessionRef.current = session;
-        session.connect();
-        return () => session.close();
+    }
+
+    useEffect(() => {
+        sessionRef.current?.connect();
     }, []);
 
     return sessionRef.current;
