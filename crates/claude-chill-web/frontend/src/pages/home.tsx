@@ -4,7 +4,7 @@ import Sidebar from '@/components/Sidebar';
 import TabBar from '@/components/TabBar';
 import EmptyState from '@/components/EmptyState';
 import SessionView from '@/components/SessionView';
-import NewSessionModal from '@/components/NewSessionModal';
+import NewSessionModal, { type SessionType } from '@/components/NewSessionModal';
 import type { Session } from '@/components/types';
 
 export default function HomePage() {
@@ -22,7 +22,7 @@ export default function HomePage() {
                 const serverIds = new Set(serverSessions.map(s => s.id));
                 const saved: Session[] = JSON.parse(localStorage.getItem('claude-chill-sessions') || '[]');
                 const restored = saved.filter(s => s.sessionId && serverIds.has(s.sessionId))
-                    .map(s => ({ ...s, status: 'connecting' as const }));
+                    .map(s => ({ ...s, status: 'connecting' as const, sessionType: s.sessionType || 'claude' as const }));
                 if (restored.length > 0) {
                     setSessions(restored);
                     if (!activeId || !restored.some(s => s.id === activeId)) {
@@ -42,9 +42,9 @@ export default function HomePage() {
         }
     }, [sessions, initialized]);
 
-    const createSession = (directory: string, name: string) => {
+    const createSession = (directory: string, name: string, sessionType: SessionType) => {
         const id = `pending-${Date.now()}`;
-        setSessions(prev => [...prev, { id, directory, name, sessionId: null, status: 'connecting' }]);
+        setSessions(prev => [...prev, { id, directory, name, sessionId: null, status: 'connecting', sessionType }]);
         navigate(`/session/${id}`);
     };
 
