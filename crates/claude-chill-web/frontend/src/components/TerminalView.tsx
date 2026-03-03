@@ -22,7 +22,7 @@ export default function TerminalView({ session, isActive }: Props) {
       cursorBlink: true,
       fontSize: 14,
       fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-      scrollback: 100000,
+      scrollback: Infinity,
       theme: { background: "#1e1e1e", foreground: "#d4d4d4" },
     });
 

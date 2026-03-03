@@ -22,19 +22,19 @@ function ProviderIcon({ type }: { type: SessionType }) {
 }
 
 function StatusDot({ status }: { status: Session["status"] }) {
-  const config = {
+  const { color, label } = {
     connecting: { color: "text-yellow-500", label: "Connecting..." },
     connected: { color: "text-success", label: "Connected" },
     disconnected: { color: "text-yellow-500", label: "Disconnected" },
     ended: { color: "text-error", label: "Session ended" },
-  };
-  const { color, label } = config[status || "connecting"];
+  }[status || "connecting"];
 
   return (
     <Popover>
       <PopoverTrigger asChild>
         <span className={`${color} cursor-help`}>●</span>
       </PopoverTrigger>
+
       <PopoverContent className="w-auto px-2 py-1 text-xs">
         {label}
       </PopoverContent>
@@ -49,21 +49,20 @@ export default function TabBar({
   onClose,
 }: Props) {
   return (
-    <div className="flex bg-bg-tertiary border-b border-border overflow-x-auto shrink-0">
+    <div className="flex bg-bg-tertiary border-b border-border overflow-x-auto">
       {sessions.map((session) => (
         <div
           key={session.id}
           onClick={() => onSelect(session.id)}
-          className={`px-4 py-2.5 border-r border-border cursor-pointer flex items-center gap-2 min-w-[120px] max-w-[200px] group ${
-            activeId === session.id
-              ? "bg-bg-primary text-text-primary border-b-2 border-b-accent"
-              : "bg-bg-tertiary text-text-secondary hover:bg-bg-hover"
-          }`}
+          className={`px-4 py-2.5 border-r border-border cursor-pointer flex items-center gap-2 min-w-[120px] max-w-[200px] group ${activeId === session.id
+            ? "bg-bg-primary text-text-primary border-b-2 border-b-accent"
+            : "bg-bg-tertiary text-text-secondary hover:bg-bg-hover"
+            }`}
         >
           <ProviderIcon type={session.sessionType} />
           <StatusDot status={session.status} />
 
-          <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[13px]">
+          <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-sm">
             {session.name}
           </span>
 
