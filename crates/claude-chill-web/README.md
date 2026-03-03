@@ -28,11 +28,13 @@ Browser (xterm.js) ←→ WebSocket ←→ Web Server (axum) ←→ Pipes ←→
 ### Prerequisites
 
 1. Build claude-chill first:
+
    ```bash
    cargo build --release -p claude-chill
    ```
 
 2. Add claude-chill to your PATH:
+
    ```bash
    # Option 1: Copy to a directory in PATH
    cp target/release/claude-chill /usr/local/bin/
@@ -202,11 +204,13 @@ claude-chill-web -p 8081
 ### Browser Won't Connect
 
 1. Check server is running:
+
    ```bash
    ps aux | grep claude-chill-web
    ```
 
 2. Check port is accessible:
+
    ```bash
    curl http://localhost:8468
    ```

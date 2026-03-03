@@ -2,11 +2,9 @@ use axum::extract::ws::{Message, WebSocket};
 use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tokio::sync::{broadcast, mpsc};
-use uuid::Uuid;
 
-use crate::child_manager::{ChildManager, InputEvent};
-use crate::config::Config;
+use crate::pty_manager::InputEvent;
+use crate::session::Session;
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type")]
@@ -19,243 +17,110 @@ enum ClientMessage {
 #[derive(Debug, Serialize)]
 #[serde(tag = "type")]
 enum ServerMessage {
+    SessionId { id: String },
+    SessionEnded,
     Pong,
-    Error { message: String },
 }
 
 pub struct WebSocketHandler {
     ws: WebSocket,
-    client_id: Uuid,
-    directory: Option<String>,
-    config: Arc<Config>,
+    session: Arc<Session>,
 }
 
 impl WebSocketHandler {
-    pub fn new(
-        ws: WebSocket,
-        client_id: Uuid,
-        directory: Option<String>,
-        config: Arc<Config>,
-    ) -> Self {
-        Self {
-            ws,
-            client_id,
-            directory,
-            config,
-        }
+    pub fn new(ws: WebSocket, session: Arc<Session>) -> Self {
+        Self { ws, session }
     }
 
-    pub async fn handle(mut self) -> anyhow::Result<()> {
-        tracing::info!(
-            "WebSocket handler started for client {} in directory {:?}",
-            self.client_id,
-            self.directory
-        );
+    pub async fn handle(self) -> anyhow::Result<()> {
+        let session_id = self.session.id;
+        tracing::info!("WebSocket handler started for session {}", session_id);
 
-        // Create channels for this session
-        let (input_tx, input_rx) = mpsc::channel(100);
-        let (broadcast_tx, mut broadcast_rx) = broadcast::channel(1024);
-
-        // Spawn child manager for this session
-        let command = self.config.child_command();
-        let args = self.config.child_args();
-        let directory = self.directory.clone();
-
-        let child_handle = tokio::spawn(async move {
-            match ChildManager::spawn(command, args, directory, broadcast_tx, input_rx).await {
-                Ok(mut manager) => {
-                    tracing::info!("Child manager started for session");
-                    if let Err(e) = manager.run().await {
-                        tracing::error!("Child manager error: {}", e);
-                    }
-                    tracing::info!("Child manager exited for session");
-                }
-                Err(e) => {
-                    tracing::error!("Failed to spawn child for session: {}", e);
-                }
-            }
-        });
-
-        // Extract fields before splitting WebSocket
-        let client_id = self.client_id;
-        let mut input_tx = input_tx;
-
-        // Split WebSocket into sender and receiver
+        let mut broadcast_rx = self.session.broadcast_tx.subscribe();
+        let mut alive_rx = self.session.alive_rx.clone();
+        let input_tx = self.session.input_tx.clone();
         let (mut ws_tx, mut ws_rx) = self.ws.split();
 
-        // Main event loop
-        let result = loop {
+        // Send session ID to client
+        if let Ok(json) = serde_json::to_string(&ServerMessage::SessionId { id: session_id.to_string() }) {
+            let _ = ws_tx.send(Message::Text(json)).await;
+        }
+
+        // Send history to reconnecting client
+        let history = self.session.get_history().await;
+        if !history.is_empty() {
+            tracing::info!("Sending {} history chunks to client", history.len());
+            for chunk in history {
+                if ws_tx.send(Message::Binary(chunk)).await.is_err() {
+                    return Ok(());
+                }
+            }
+        }
+
+        loop {
             tokio::select! {
-                // Receive from broadcast channel and send to WebSocket
                 result = broadcast_rx.recv() => {
                     match result {
                         Ok(data) => {
-                            tracing::trace!(
-                                "Sending {} bytes to client {}",
-                                data.len(),
-                                client_id
-                            );
-
-                            if let Err(e) = ws_tx.send(Message::Binary(data)).await {
-                                tracing::warn!(
-                                    "Failed to send to client {}: {}",
-                                    client_id,
-                                    e
-                                );
-                                break Ok(());
+                            tracing::debug!("Sending {} bytes to WebSocket", data.len());
+                            if ws_tx.send(Message::Binary(data)).await.is_err() {
+                                break;
                             }
                         }
-                        Err(broadcast::error::RecvError::Lagged(skipped)) => {
-                            tracing::warn!(
-                                "Client {} lagged behind, skipped {} messages",
-                                client_id,
-                                skipped
-                            );
-                            // Continue receiving new messages
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                            tracing::warn!("Client lagged, skipped {} messages", n);
                         }
-                        Err(broadcast::error::RecvError::Closed) => {
-                            tracing::info!("Broadcast channel closed for client {}", client_id);
-                            break Ok(());
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                            tracing::info!("Broadcast closed for session {}", session_id);
+                            break;
                         }
                     }
                 }
 
-                // Receive from WebSocket and send to input channel
+                _ = alive_rx.changed() => {
+                    if !*alive_rx.borrow() {
+                        tracing::info!("Session {} ended, notifying client", session_id);
+                        if let Ok(json) = serde_json::to_string(&ServerMessage::SessionEnded) {
+                            let _ = ws_tx.send(Message::Text(json)).await;
+                        }
+                        let _ = ws_tx.close().await;
+                        break;
+                    }
+                }
+
                 msg = ws_rx.next() => {
                     match msg {
                         Some(Ok(Message::Binary(data))) => {
-                            tracing::trace!(
-                                "Received {} bytes from client {}",
-                                data.len(),
-                                client_id
-                            );
-
-                            if let Err(e) = input_tx.send(InputEvent::Data(data.to_vec())).await {
-                                tracing::error!(
-                                    "Failed to send input to child manager: {}",
-                                    e
-                                );
-                                break Ok(());
-                            }
+                            let _ = input_tx.send(InputEvent::Data(data.to_vec())).await;
                         }
-
                         Some(Ok(Message::Text(text))) => {
-                            tracing::trace!(
-                                "Received text message from client {}: {}",
-                                client_id,
-                                text
-                            );
-
-                            match serde_json::from_str::<ClientMessage>(&text) {
-                                Ok(msg) => {
-                                    if let Err(e) = Self::handle_control_message(
-                                        msg,
-                                        &mut ws_tx,
-                                        &mut input_tx,
-                                        client_id
-                                    ).await {
-                                        tracing::warn!(
-                                            "Error handling control message from client {}: {}",
-                                            client_id,
-                                            e
-                                        );
+                            if let Ok(msg) = serde_json::from_str::<ClientMessage>(&text) {
+                                match msg {
+                                    ClientMessage::Input { data } => {
+                                        let _ = input_tx.send(InputEvent::Data(data.into_bytes())).await;
                                     }
-                                }
-                                Err(e) => {
-                                    tracing::warn!(
-                                        "Failed to parse message from client {}: {}",
-                                        client_id,
-                                        e
-                                    );
-
-                                    let error_msg = ServerMessage::Error {
-                                        message: format!("Invalid message format: {}", e),
-                                    };
-
-                                    if let Ok(json) = serde_json::to_string(&error_msg) {
-                                        let _ = ws_tx.send(Message::Text(json)).await;
+                                    ClientMessage::Resize { rows, cols } => {
+                                        let _ = input_tx.send(InputEvent::Resize { rows, cols }).await;
+                                    }
+                                    ClientMessage::Ping => {
+                                        if let Ok(json) = serde_json::to_string(&ServerMessage::Pong) {
+                                            let _ = ws_tx.send(Message::Text(json)).await;
+                                        }
                                     }
                                 }
                             }
                         }
-
-                        Some(Ok(Message::Close(_))) => {
-                            tracing::info!("Client {} requested close", client_id);
-                            break Ok(());
-                        }
-
                         Some(Ok(Message::Ping(data))) => {
-                            tracing::trace!("Received ping from client {}", client_id);
-                            if let Err(e) = ws_tx.send(Message::Pong(data)).await {
-                                tracing::warn!("Failed to send pong to client {}: {}", client_id, e);
-                                break Ok(());
-                            }
+                            let _ = ws_tx.send(Message::Pong(data)).await;
                         }
-
-                        Some(Ok(Message::Pong(_))) => {
-                            // Ignore pongs
-                        }
-
-                        Some(Err(e)) => {
-                            tracing::warn!("WebSocket error for client {}: {}", client_id, e);
-                            break Ok(());
-                        }
-
-                        None => {
-                            tracing::info!("WebSocket stream ended for client {}", client_id);
-                            break Ok(());
-                        }
+                        Some(Ok(Message::Close(_))) | None => break,
+                        _ => {}
                     }
                 }
-
-                // Child process exited
-                _ = &mut child_handle => {
-                    tracing::info!("Child process exited for client {}", client_id);
-                    // Send notification to client
-                    let msg = b"\r\n\x1b[33mSession ended\x1b[0m\r\n";
-                    let _ = ws_tx.send(Message::Binary(msg.to_vec())).await;
-                    break Ok(());
-                }
-            }
-        };
-
-        // Cleanup: abort child process if still running
-        child_handle.abort();
-
-        tracing::info!("WebSocket handler finished for client {}", client_id);
-        result
-    }
-
-    async fn handle_control_message(
-        msg: ClientMessage,
-        ws_tx: &mut futures::stream::SplitSink<WebSocket, Message>,
-        input_tx: &mut mpsc::Sender<InputEvent>,
-        client_id: Uuid,
-    ) -> anyhow::Result<()> {
-        match msg {
-            ClientMessage::Input { data } => {
-                // Convert base64 or raw string to bytes
-                let bytes = data.as_bytes().to_vec();
-                input_tx.send(InputEvent::Data(bytes)).await?;
-            }
-
-            ClientMessage::Resize { rows, cols } => {
-                tracing::debug!(
-                    "Client {} requested resize to {}x{}",
-                    client_id,
-                    rows,
-                    cols
-                );
-                input_tx.send(InputEvent::Resize { rows, cols }).await?;
-            }
-
-            ClientMessage::Ping => {
-                let pong = ServerMessage::Pong;
-                let json = serde_json::to_string(&pong)?;
-                ws_tx.send(Message::Text(json)).await?;
             }
         }
 
+        tracing::info!("WebSocket disconnected from session {} (session persists)", session_id);
         Ok(())
     }
 }
