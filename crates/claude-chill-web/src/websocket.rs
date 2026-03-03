@@ -5,8 +5,8 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
 use uuid::Uuid;
 
-use crate::broadcast::BroadcastManager;
-use crate::child_manager::InputEvent;
+use crate::child_manager::{ChildManager, InputEvent};
+use crate::config::Config;
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type")]
@@ -25,61 +25,66 @@ enum ServerMessage {
 
 pub struct WebSocketHandler {
     ws: WebSocket,
-    broadcast_rx: broadcast::Receiver<Vec<u8>>,
-    input_tx: mpsc::Sender<InputEvent>,
     client_id: Uuid,
-    broadcast_manager: Arc<BroadcastManager>,
+    directory: Option<String>,
+    config: Arc<Config>,
 }
 
 impl WebSocketHandler {
     pub fn new(
         ws: WebSocket,
-        broadcast_rx: broadcast::Receiver<Vec<u8>>,
-        input_tx: mpsc::Sender<InputEvent>,
         client_id: Uuid,
-        broadcast_manager: Arc<BroadcastManager>,
+        directory: Option<String>,
+        config: Arc<Config>,
     ) -> Self {
         Self {
             ws,
-            broadcast_rx,
-            input_tx,
             client_id,
-            broadcast_manager,
+            directory,
+            config,
         }
     }
 
     pub async fn handle(mut self) -> anyhow::Result<()> {
-        tracing::info!("WebSocket handler started for client {}", self.client_id);
-
-        // Send history to new client for catch-up
-        let history = self.broadcast_manager.get_history().await;
         tracing::info!(
-            "Sending {} history chunks to client {}",
-            history.len(),
-            self.client_id
+            "WebSocket handler started for client {} in directory {:?}",
+            self.client_id,
+            self.directory
         );
 
-        for chunk in history {
-            if let Err(e) = self.ws.send(Message::Binary(chunk)).await {
-                tracing::warn!(
-                    "Failed to send history to client {}: {}",
-                    self.client_id,
-                    e
-                );
-                return Ok(());
+        // Create channels for this session
+        let (input_tx, input_rx) = mpsc::channel(100);
+        let (broadcast_tx, mut broadcast_rx) = broadcast::channel(1024);
+
+        // Spawn child manager for this session
+        let command = self.config.child_command();
+        let args = self.config.child_args();
+        let directory = self.directory.clone();
+
+        let child_handle = tokio::spawn(async move {
+            match ChildManager::spawn(command, args, directory, broadcast_tx, input_rx).await {
+                Ok(mut manager) => {
+                    tracing::info!("Child manager started for session");
+                    if let Err(e) = manager.run().await {
+                        tracing::error!("Child manager error: {}", e);
+                    }
+                    tracing::info!("Child manager exited for session");
+                }
+                Err(e) => {
+                    tracing::error!("Failed to spawn child for session: {}", e);
+                }
             }
-        }
+        });
 
         // Extract fields before splitting WebSocket
         let client_id = self.client_id;
-        let mut input_tx = self.input_tx;
-        let mut broadcast_rx = self.broadcast_rx;
+        let mut input_tx = input_tx;
 
         // Split WebSocket into sender and receiver
         let (mut ws_tx, mut ws_rx) = self.ws.split();
 
         // Main event loop
-        loop {
+        let result = loop {
             tokio::select! {
                 // Receive from broadcast channel and send to WebSocket
                 result = broadcast_rx.recv() => {
@@ -97,7 +102,7 @@ impl WebSocketHandler {
                                     client_id,
                                     e
                                 );
-                                break;
+                                break Ok(());
                             }
                         }
                         Err(broadcast::error::RecvError::Lagged(skipped)) => {
@@ -110,7 +115,7 @@ impl WebSocketHandler {
                         }
                         Err(broadcast::error::RecvError::Closed) => {
                             tracing::info!("Broadcast channel closed for client {}", client_id);
-                            break;
+                            break Ok(());
                         }
                     }
                 }
@@ -130,7 +135,7 @@ impl WebSocketHandler {
                                     "Failed to send input to child manager: {}",
                                     e
                                 );
-                                break;
+                                break Ok(());
                             }
                         }
 
@@ -176,14 +181,14 @@ impl WebSocketHandler {
 
                         Some(Ok(Message::Close(_))) => {
                             tracing::info!("Client {} requested close", client_id);
-                            break;
+                            break Ok(());
                         }
 
                         Some(Ok(Message::Ping(data))) => {
                             tracing::trace!("Received ping from client {}", client_id);
                             if let Err(e) = ws_tx.send(Message::Pong(data)).await {
                                 tracing::warn!("Failed to send pong to client {}: {}", client_id, e);
-                                break;
+                                break Ok(());
                             }
                         }
 
@@ -193,20 +198,32 @@ impl WebSocketHandler {
 
                         Some(Err(e)) => {
                             tracing::warn!("WebSocket error for client {}: {}", client_id, e);
-                            break;
+                            break Ok(());
                         }
 
                         None => {
                             tracing::info!("WebSocket stream ended for client {}", client_id);
-                            break;
+                            break Ok(());
                         }
                     }
                 }
+
+                // Child process exited
+                _ = &mut child_handle => {
+                    tracing::info!("Child process exited for client {}", client_id);
+                    // Send notification to client
+                    let msg = b"\r\n\x1b[33mSession ended\x1b[0m\r\n";
+                    let _ = ws_tx.send(Message::Binary(msg.to_vec())).await;
+                    break Ok(());
+                }
             }
-        }
+        };
+
+        // Cleanup: abort child process if still running
+        child_handle.abort();
 
         tracing::info!("WebSocket handler finished for client {}", client_id);
-        Ok(())
+        result
     }
 
     async fn handle_control_message(

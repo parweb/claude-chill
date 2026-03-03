@@ -1,30 +1,33 @@
 use axum::{
     extract::{
         ws::{WebSocket, WebSocketUpgrade},
-        State,
+        Query, State,
     },
     response::Response,
     routing::get,
     Router,
 };
+use serde::Deserialize;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::sync::mpsc;
 use tower_http::{
     services::ServeDir,
     trace::{DefaultMakeSpan, TraceLayer},
 };
 use uuid::Uuid;
 
-use crate::broadcast::BroadcastManager;
-use crate::child_manager::InputEvent;
 use crate::config::Config;
 use crate::websocket::WebSocketHandler;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub broadcast: Arc<BroadcastManager>,
-    pub input_tx: mpsc::Sender<InputEvent>,
+    pub config: Arc<Config>,
+}
+
+#[derive(Deserialize)]
+pub struct WebSocketQuery {
+    #[serde(default)]
+    pub directory: Option<String>,
 }
 
 pub async fn run(config: Config, state: AppState) -> anyhow::Result<()> {
@@ -52,22 +55,21 @@ pub async fn run(config: Config, state: AppState) -> anyhow::Result<()> {
 
 async fn websocket_upgrade(
     ws: WebSocketUpgrade,
+    Query(query): Query<WebSocketQuery>,
     State(state): State<Arc<AppState>>,
 ) -> Response {
-    ws.on_upgrade(|socket| handle_websocket(socket, state))
+    ws.on_upgrade(|socket| handle_websocket(socket, query.directory, state))
 }
 
-async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
+async fn handle_websocket(socket: WebSocket, directory: Option<String>, state: Arc<AppState>) {
     let client_id = Uuid::new_v4();
-    tracing::info!("Client {} connected", client_id);
-
-    let handler = WebSocketHandler::new(
-        socket,
-        state.broadcast.subscribe(),
-        state.input_tx.clone(),
+    tracing::info!(
+        "Client {} connected with directory: {:?}",
         client_id,
-        state.broadcast.clone(),
+        directory
     );
+
+    let handler = WebSocketHandler::new(socket, client_id, directory, state.config.clone());
 
     if let Err(e) = handler.handle().await {
         tracing::error!("WebSocket error for client {}: {}", client_id, e);
