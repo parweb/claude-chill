@@ -12,6 +12,21 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  version-badge:
+    name: Version Badge
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check version badge matches Cargo.toml
+        run: |
+          CARGO_VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          BADGE_VERSION=$(grep -oP 'badge/version-\K[0-9]+\.[0-9]+\.[0-9]+' README.md | head -1)
+          if [ "$CARGO_VERSION" != "$BADGE_VERSION" ]; then
+            echo "Version mismatch: Cargo.toml=$CARGO_VERSION README badge=$BADGE_VERSION"
+            exit 1
+          fi
+          echo "Version badge matches: $CARGO_VERSION"
+
   check:
     name: Check
     runs-on: ubuntu-latest
@@ -78,3 +93,14 @@ jobs:
         run: command -v expect || brew install expect
       - run: cargo build
       - run: expect tests/integration.exp
+
+  nix-build:
+    name: Nix Build
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - run: nix build .# -L

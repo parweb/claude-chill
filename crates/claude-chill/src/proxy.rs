@@ -1,9 +1,9 @@
-use crate::escape_filter::TerminalQueryFilter;
 use crate::escape_sequences::{
     ALT_SCREEN_ENTER, ALT_SCREEN_ENTER_LEGACY, ALT_SCREEN_EXIT, ALT_SCREEN_EXIT_LEGACY,
     CLEAR_SCREEN, CURSOR_HOME, INPUT_BUFFER_CAPACITY, OUTPUT_BUFFER_CAPACITY, SYNC_BUFFER_CAPACITY,
     SYNC_END, SYNC_START,
 };
+use crate::history_filter::HistoryFilter;
 use crate::line_buffer::LineBuffer;
 use anyhow::{Context, Result};
 use log::debug;
@@ -21,6 +21,9 @@ use std::os::unix::process::CommandExt;
 use std::process::{Child, Command, ExitStatus};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
+use termwiz::escape::Action;
+use termwiz::escape::csi::{CSI, Keyboard};
+use termwiz::escape::parser::Parser as TermwizParser;
 
 static SIGWINCH_RECEIVED: AtomicBool = AtomicBool::new(false);
 static SIGINT_RECEIVED: AtomicBool = AtomicBool::new(false);
@@ -48,7 +51,8 @@ extern "C" fn handle_sigterm(_: libc::c_int) {
 pub struct ProxyConfig {
     pub max_history_lines: usize,
     pub lookback_key: String,
-    pub lookback_sequence: Vec<u8>,
+    pub lookback_sequence_legacy: Vec<u8>,
+    pub lookback_sequence_kitty: Vec<u8>,
     pub auto_lookback_timeout_ms: u64,
 }
 
@@ -57,8 +61,9 @@ impl Default for ProxyConfig {
         Self {
             max_history_lines: 100_000,
             lookback_key: "[ctrl][6]".to_string(),
-            lookback_sequence: vec![0x1E],
-            auto_lookback_timeout_ms: 5000,
+            lookback_sequence_legacy: vec![0x1E],
+            lookback_sequence_kitty: b"\x1b[54;5u".to_vec(),
+            auto_lookback_timeout_ms: 15000,
         }
     }
 }
@@ -95,16 +100,21 @@ pub struct Proxy {
     child: Child,
     original_termios: Option<Termios>,
     history: LineBuffer,
-    history_filter: TerminalQueryFilter,
+    history_filter: HistoryFilter,
     vt_parser: vt100::Parser,
     vt_prev_screen: Option<vt100::Screen>,
     last_output_time: Option<Instant>,
     last_render_time: Option<Instant>,
+    last_stdin_time: Option<Instant>,
+    last_auto_lookback_time: Option<Instant>,
     auto_lookback_timeout: Duration,
     sync_buffer: Vec<u8>,
     in_sync_block: bool,
     in_lookback_mode: bool,
     in_alternate_screen: bool,
+    kitty_mode_supported: bool,
+    kitty_mode_stack: u32,
+    kitty_output_parser: TermwizParser,
     vt_render_pending: bool,
     lookback_cache: Vec<u8>,
     lookback_input_buffer: Vec<u8>,
@@ -119,6 +129,88 @@ pub struct Proxy {
     alt_screen_exit_legacy_finder: memmem::Finder<'static>,
 }
 
+/// Returns (supported, initial_flags) - if flags > 0, terminal is already in Kitty mode
+fn detect_kitty_support() -> (bool, u32) {
+    use std::io::Write;
+    use termwiz::escape::csi::Device;
+
+    // Query sequences:
+    // CSI ? u       - Kitty keyboard protocol query
+    // CSI c         - Primary Device Attributes (all terminals respond)
+    const KITTY_QUERY: &[u8] = b"\x1b[?u";
+    const DA_QUERY: &[u8] = b"\x1b[c";
+
+    // Send both queries
+    let stdout = std::io::stdout();
+    let mut stdout_lock = stdout.lock();
+    if stdout_lock.write_all(KITTY_QUERY).is_err() {
+        return (false, 0);
+    }
+    if stdout_lock.write_all(DA_QUERY).is_err() {
+        return (false, 0);
+    }
+    if stdout_lock.flush().is_err() {
+        return (false, 0);
+    }
+    drop(stdout_lock);
+
+    // Read responses with timeout using termwiz parser
+    let stdin = std::io::stdin();
+    let mut parser = TermwizParser::new();
+    let mut buf = [0u8; 256];
+    let mut kitty_supported = false;
+    let mut kitty_flags: u32 = 0;
+    let start = std::time::Instant::now();
+    let timeout = std::time::Duration::from_millis(500);
+    let poll_interval = PollTimeout::from(50u16);
+
+    while start.elapsed() < timeout {
+        let mut poll_fd = [PollFd::new(stdin.as_fd(), PollFlags::POLLIN)];
+
+        match poll(&mut poll_fd, poll_interval) {
+            Ok(0) => continue,
+            Ok(_) => {
+                match read(stdin.as_fd(), &mut buf) {
+                    Ok(0) => continue,
+                    Ok(n) => {
+                        let actions = parser.parse_as_vec(&buf[..n]);
+                        for action in actions {
+                            if let Action::CSI(csi) = action {
+                                match csi {
+                                    CSI::Keyboard(Keyboard::ReportKittyState(flags)) => {
+                                        kitty_supported = true;
+                                        kitty_flags = u32::from(flags.bits());
+                                    }
+                                    CSI::Device(dev)
+                                        if matches!(*dev, Device::DeviceAttributes(_)) =>
+                                    {
+                                        // DA response means all responses received
+                                        debug!(
+                                            "Kitty detection complete: supported={} flags={}",
+                                            kitty_supported, kitty_flags
+                                        );
+                                        return (kitty_supported, kitty_flags);
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+                    Err(e) if e == Errno::EAGAIN || e == Errno::EWOULDBLOCK => continue,
+                    Err(_) => break,
+                }
+            }
+            Err(_) => continue,
+        }
+    }
+
+    debug!(
+        "Kitty detection timed out, supported={} flags={}",
+        kitty_supported, kitty_flags
+    );
+    (kitty_supported, kitty_flags)
+}
+
 impl Proxy {
     pub fn spawn(command: &str, args: &[&str], config: ProxyConfig) -> Result<Self> {
         let winsize = get_terminal_size()?;
@@ -126,6 +218,11 @@ impl Proxy {
 
         let terminal_guard = TerminalGuard::new()?;
         setup_signal_handlers()?;
+
+        // Detect Kitty support before spawning child
+        // If flags > 0, terminal is already in Kitty mode (inherited from parent)
+        let (kitty_supported, kitty_initial_flags) = detect_kitty_support();
+        let kitty_initial_stack = if kitty_initial_flags > 0 { 1 } else { 0 };
 
         let slave_fd = pty.slave.as_raw_fd();
 
@@ -173,7 +270,7 @@ impl Proxy {
 
         Ok(Self {
             history,
-            history_filter: TerminalQueryFilter::new(),
+            history_filter: HistoryFilter::new(),
             config,
             pty_master: pty.master,
             child,
@@ -182,11 +279,16 @@ impl Proxy {
             vt_prev_screen: None,
             last_output_time: None,
             last_render_time: None,
+            last_stdin_time: None,
+            last_auto_lookback_time: None,
             auto_lookback_timeout,
             sync_buffer: Vec::with_capacity(SYNC_BUFFER_CAPACITY),
             in_sync_block: false,
             in_lookback_mode: false,
             in_alternate_screen: false,
+            kitty_mode_supported: kitty_supported,
+            kitty_mode_stack: kitty_initial_stack,
+            kitty_output_parser: TermwizParser::new(),
             vt_render_pending: false,
             lookback_cache: Vec::new(),
             lookback_input_buffer: Vec::with_capacity(INPUT_BUFFER_CAPACITY),
@@ -299,10 +401,10 @@ impl Proxy {
         );
 
         if self.in_alternate_screen {
-            // Still feed VT and history while in alt screen so they stay in sync
+            // Feed VT but NOT history while in alt screen
+            // Alt screen content (TUI editors, etc.) shouldn't be in lookback history
             if feed_vt {
                 self.vt_parser.process(data);
-                self.push_to_history(data);
             }
             return self.process_output_alt_screen(data, stdout_fd);
         }
@@ -342,7 +444,7 @@ impl Proxy {
                 self.in_alternate_screen = true;
                 let seq_len = self.alt_screen_enter_len(&data[pos + alt_pos..]);
                 // Write alt screen enter directly
-                write_all(stdout_fd, &data[pos + alt_pos..pos + alt_pos + seq_len])?;
+                self.write_to_terminal(stdout_fd, &data[pos + alt_pos..pos + alt_pos + seq_len])?;
                 return self.process_output_alt_screen(&data[pos + alt_pos + seq_len..], stdout_fd);
             }
 
@@ -384,9 +486,9 @@ impl Proxy {
                 "process_output_alt_screen: ALT_SCREEN_EXIT detected at pos={}",
                 exit_pos
             );
-            write_all(stdout_fd, &data[..exit_pos])?;
+            self.write_to_terminal(stdout_fd, &data[..exit_pos])?;
             let seq_len = self.alt_screen_exit_len(&data[exit_pos..]);
-            write_all(stdout_fd, &data[exit_pos..exit_pos + seq_len])?;
+            self.write_to_terminal(stdout_fd, &data[exit_pos..exit_pos + seq_len])?;
             self.in_alternate_screen = false;
 
             // Force full VT render to restore main screen content
@@ -406,7 +508,7 @@ impl Proxy {
             }
             return Ok(());
         }
-        write_all(stdout_fd, data)
+        self.write_to_terminal(stdout_fd, data)
     }
 
     /// Check for alt screen transitions without re-feeding VT/history
@@ -418,7 +520,7 @@ impl Proxy {
             );
             self.in_alternate_screen = true;
             let seq_len = self.alt_screen_enter_len(&data[alt_pos..]);
-            write_all(stdout_fd, &data[alt_pos..alt_pos + seq_len])?;
+            self.write_to_terminal(stdout_fd, &data[alt_pos..alt_pos + seq_len])?;
             return self.process_output_alt_screen(&data[alt_pos + seq_len..], stdout_fd);
         }
         Ok(())
@@ -459,6 +561,65 @@ impl Proxy {
             ALT_SCREEN_EXIT.len()
         } else {
             ALT_SCREEN_EXIT_LEGACY.len()
+        }
+    }
+
+    fn kitty_mode_enabled(&self) -> bool {
+        self.kitty_mode_stack > 0
+    }
+
+    /// Write data to the terminal and track Kitty keyboard protocol state
+    fn write_to_terminal<F: AsFd>(&mut self, stdout_fd: &F, data: &[u8]) -> Result<()> {
+        Self::update_kitty_mode_helper(
+            &mut self.kitty_output_parser,
+            &mut self.kitty_mode_stack,
+            self.kitty_mode_supported,
+            data,
+        );
+        write_all(stdout_fd, data)
+    }
+
+    fn update_kitty_mode_helper(
+        parser: &mut TermwizParser,
+        stack: &mut u32,
+        supported: bool,
+        data: &[u8],
+    ) {
+        let actions = parser.parse_as_vec(data);
+        for action in actions {
+            if let Action::CSI(csi) = action {
+                match csi {
+                    CSI::Keyboard(Keyboard::PushKittyState { flags, .. }) => {
+                        if supported {
+                            *stack = stack.saturating_add(1);
+                            debug!(
+                                "Kitty keyboard protocol push (flags={:?}, stack={})",
+                                flags, stack
+                            );
+                        }
+                    }
+                    CSI::Keyboard(Keyboard::SetKittyState { flags, .. }) => {
+                        if supported && !flags.is_empty() && *stack == 0 {
+                            *stack = 1;
+                            debug!(
+                                "Kitty keyboard protocol set (flags={:?}, stack={})",
+                                flags, stack
+                            );
+                        } else if flags.is_empty() && *stack > 0 {
+                            debug!("Kitty keyboard protocol set empty flags (stack={})", stack);
+                        }
+                    }
+                    CSI::Keyboard(Keyboard::PopKittyState(n)) => {
+                        let prev = *stack;
+                        *stack = stack.saturating_sub(n);
+                        debug!(
+                            "Kitty keyboard protocol pop {} (stack {} -> {})",
+                            n, prev, stack
+                        );
+                    }
+                    _ => {}
+                }
+            }
         }
     }
 
@@ -565,6 +726,14 @@ impl Proxy {
             is_diff,
             self.output_buffer.len()
         );
+        // Can't use write_to_terminal here due to borrow checker - can't pass
+        // &self.output_buffer while also taking &mut self
+        Self::update_kitty_mode_helper(
+            &mut self.kitty_output_parser,
+            &mut self.kitty_mode_stack,
+            self.kitty_mode_supported,
+            &self.output_buffer,
+        );
         write_all(stdout_fd, &self.output_buffer)?;
 
         // Store current screen for next diff
@@ -581,14 +750,38 @@ impl Proxy {
         if self.in_lookback_mode || self.in_alternate_screen {
             return Ok(());
         }
+
+        // Check if enough time has passed since last stdin activity
+        let Some(stdin_time) = self.last_stdin_time else {
+            return Ok(());
+        };
+        if stdin_time.elapsed() < self.auto_lookback_timeout {
+            return Ok(());
+        }
+
+        // Check if there's been new output since last auto-lookback
+        // AND enough time has passed since we last dumped
         let Some(render_time) = self.last_render_time else {
             return Ok(());
         };
-        if render_time.elapsed() < self.auto_lookback_timeout {
-            return Ok(());
+        if let Some(last_auto) = self.last_auto_lookback_time {
+            let no_new_output = render_time <= last_auto;
+            let too_soon = last_auto.elapsed() < self.auto_lookback_timeout;
+            if no_new_output || too_soon {
+                return Ok(());
+            }
         }
+
+        debug!(
+            "auto_lookback triggered: stdin_idle={}ms render_age={}ms last_auto_age={}ms",
+            stdin_time.elapsed().as_millis(),
+            render_time.elapsed().as_millis(),
+            self.last_auto_lookback_time
+                .map(|t| t.elapsed().as_millis())
+                .unwrap_or(0)
+        );
         self.dump_history(stdout_fd)?;
-        self.last_render_time = None;
+        self.last_auto_lookback_time = Some(Instant::now());
         Ok(())
     }
 
@@ -601,8 +794,23 @@ impl Proxy {
         self.output_buffer.clear();
         self.history.append_all(&mut self.output_buffer);
 
-        write_all(stdout_fd, CLEAR_SCREEN)?;
-        write_all(stdout_fd, CURSOR_HOME)?;
+        // Debug: write history to file if CLAUDE_CHILL_HISTORY_FILE is set
+        if let Ok(path) = std::env::var("CLAUDE_CHILL_HISTORY_FILE")
+            && let Err(e) = std::fs::write(&path, &self.output_buffer)
+        {
+            debug!("Failed to write history file: {}", e);
+        }
+
+        self.write_to_terminal(stdout_fd, CLEAR_SCREEN)?;
+        self.write_to_terminal(stdout_fd, CURSOR_HOME)?;
+        // Can't use write_to_terminal here due to borrow checker - can't pass
+        // &self.output_buffer while also taking &mut self
+        Self::update_kitty_mode_helper(
+            &mut self.kitty_output_parser,
+            &mut self.kitty_mode_stack,
+            self.kitty_mode_supported,
+            &self.output_buffer,
+        );
         write_all(stdout_fd, &self.output_buffer)?;
 
         // Force full VT render on next output since terminal now shows history
@@ -611,9 +819,19 @@ impl Proxy {
     }
 
     fn process_input<F: AsFd>(&mut self, data: &[u8], stdout_fd: &F) -> Result<()> {
+        self.last_stdin_time = Some(Instant::now());
+
+        debug!("process_input: stdin={:?}", data);
+
         if self.in_alternate_screen {
             return write_all(&self.pty_master, data);
         }
+
+        let lookback_sequence = if self.kitty_mode_enabled() {
+            self.config.lookback_sequence_kitty.clone()
+        } else {
+            self.config.lookback_sequence_legacy.clone()
+        };
 
         for &byte in data {
             if self.in_lookback_mode && byte == 0x03 {
@@ -625,13 +843,13 @@ impl Proxy {
             let lookback_action = self.check_sequence_match(
                 byte,
                 &mut self.lookback_input_buffer.clone(),
-                &self.config.lookback_sequence.clone(),
+                &lookback_sequence,
             );
 
             self.lookback_input_buffer.push(byte);
 
-            if self.lookback_input_buffer.len() > self.config.lookback_sequence.len() {
-                let excess = self.lookback_input_buffer.len() - self.config.lookback_sequence.len();
+            if self.lookback_input_buffer.len() > lookback_sequence.len() {
+                let excess = self.lookback_input_buffer.len() - lookback_sequence.len();
                 self.lookback_input_buffer.drain(..excess);
             }
 
@@ -645,20 +863,17 @@ impl Proxy {
                     }
                     continue;
                 }
-                SequenceMatch::Partial => {}
-                SequenceMatch::None => {
-                    if !self
-                        .config
-                        .lookback_sequence
-                        .starts_with(&self.lookback_input_buffer)
-                    {
-                        self.lookback_input_buffer.clear();
-                    }
+                SequenceMatch::Partial => {
+                    // Still might be lookback sequence, don't forward yet
+                    continue;
                 }
-            }
-
-            if lookback_action == SequenceMatch::None && !self.in_lookback_mode {
-                write_all(&self.pty_master, &[byte])?;
+                SequenceMatch::None => {
+                    // Not a lookback sequence - forward all buffered bytes
+                    if !self.in_lookback_mode {
+                        write_all(&self.pty_master, &self.lookback_input_buffer)?;
+                    }
+                    self.lookback_input_buffer.clear();
+                }
             }
         }
         Ok(())
@@ -870,4 +1085,265 @@ fn write_all<F: AsFd>(fd: &F, data: &[u8]) -> Result<()> {
 
 fn nix_read<F: AsFd>(fd: &F, buf: &mut [u8]) -> Result<usize, Errno> {
     read(fd.as_fd(), buf)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Helper to test Kitty tracking using the real update_kitty_mode_helper
+    struct KittyTracker {
+        parser: TermwizParser,
+        mode_supported: bool,
+        mode_stack: u32,
+    }
+
+    impl KittyTracker {
+        fn new() -> Self {
+            Self {
+                parser: TermwizParser::new(),
+                mode_supported: false,
+                mode_stack: 0,
+            }
+        }
+
+        fn mode_enabled(&self) -> bool {
+            self.mode_stack > 0
+        }
+
+        fn process_output(&mut self, data: &[u8]) {
+            // Uses the real production function
+            Proxy::update_kitty_mode_helper(
+                &mut self.parser,
+                &mut self.mode_stack,
+                self.mode_supported,
+                data,
+            );
+        }
+
+        fn process_input(&mut self, data: &[u8]) {
+            // Kitty support detection from query response (CSI ? flags u)
+            // This is done separately in detect_kitty_support() at startup
+            if self.mode_supported {
+                return;
+            }
+            let actions = self.parser.parse_as_vec(data);
+            for action in actions {
+                if let Action::CSI(CSI::Keyboard(Keyboard::ReportKittyState(_))) = action {
+                    self.mode_supported = true;
+                    return;
+                }
+            }
+        }
+    }
+
+    // Tests for Kitty keyboard protocol tracking
+
+    #[test]
+    fn test_kitty_initially_disabled() {
+        let tracker = KittyTracker::new();
+        assert!(!tracker.mode_enabled());
+        assert!(!tracker.mode_supported);
+    }
+
+    #[test]
+    fn test_kitty_support_detected_from_query_response() {
+        let mut tracker = KittyTracker::new();
+        // Terminal responds to query with CSI ? flags u
+        tracker.process_input(b"\x1b[?1u");
+        assert!(tracker.mode_supported);
+    }
+
+    #[test]
+    fn test_kitty_push_increments_stack() {
+        let mut tracker = KittyTracker::new();
+        tracker.mode_supported = true;
+        // CSI > 1 u = push with flags
+        tracker.process_output(b"\x1b[>1u");
+        assert_eq!(tracker.mode_stack, 1);
+        assert!(tracker.mode_enabled());
+    }
+
+    #[test]
+    fn test_kitty_push_requires_support() {
+        let mut tracker = KittyTracker::new();
+        // Push without support detection - should be ignored
+        tracker.process_output(b"\x1b[>1u");
+        assert_eq!(tracker.mode_stack, 0);
+        assert!(!tracker.mode_enabled());
+    }
+
+    #[test]
+    fn test_kitty_pop_decrements_stack() {
+        let mut tracker = KittyTracker::new();
+        tracker.mode_supported = true;
+        tracker.process_output(b"\x1b[>1u"); // push
+        tracker.process_output(b"\x1b[<u"); // pop 1
+        assert_eq!(tracker.mode_stack, 0);
+        assert!(!tracker.mode_enabled());
+    }
+
+    #[test]
+    fn test_kitty_pop_with_count() {
+        let mut tracker = KittyTracker::new();
+        tracker.mode_supported = true;
+        tracker.process_output(b"\x1b[>1u"); // push
+        tracker.process_output(b"\x1b[>1u"); // push
+        tracker.process_output(b"\x1b[>1u"); // push
+        assert_eq!(tracker.mode_stack, 3);
+        tracker.process_output(b"\x1b[<2u"); // pop 2
+        assert_eq!(tracker.mode_stack, 1);
+        assert!(tracker.mode_enabled());
+    }
+
+    #[test]
+    fn test_kitty_pop_saturates_at_zero() {
+        let mut tracker = KittyTracker::new();
+        tracker.mode_supported = true;
+        tracker.process_output(b"\x1b[>1u"); // push
+        tracker.process_output(b"\x1b[<5u"); // pop 5 (more than we have)
+        assert_eq!(tracker.mode_stack, 0);
+        assert!(!tracker.mode_enabled());
+    }
+
+    #[test]
+    fn test_kitty_split_sequence_across_buffers() {
+        let mut tracker = KittyTracker::new();
+        tracker.mode_supported = true;
+        // Feed the sequence in parts
+        tracker.process_output(b"\x1b[>");
+        tracker.process_output(b"1u");
+        assert_eq!(tracker.mode_stack, 1);
+    }
+
+    #[test]
+    fn test_kitty_multiple_sequences_in_one_buffer() {
+        let mut tracker = KittyTracker::new();
+        tracker.mode_supported = true;
+        // Push twice, pop once, all in one buffer
+        tracker.process_output(b"\x1b[>1u\x1b[>1u\x1b[<u");
+        assert_eq!(tracker.mode_stack, 1);
+    }
+
+    #[test]
+    fn test_kitty_mixed_with_other_sequences() {
+        let mut tracker = KittyTracker::new();
+        tracker.mode_supported = true;
+        // Kitty push mixed with cursor moves and SGR
+        tracker.process_output(b"\x1b[H\x1b[>1u\x1b[31m\x1b[2J");
+        assert_eq!(tracker.mode_stack, 1);
+    }
+
+    #[test]
+    fn test_kitty_typical_session_flow() {
+        let mut tracker = KittyTracker::new();
+        // 1. Terminal responds to query
+        tracker.process_input(b"\x1b[?1u");
+        assert!(tracker.mode_supported);
+        assert!(!tracker.mode_enabled());
+        // 2. App pushes keyboard mode
+        tracker.process_output(b"\x1b[>1u");
+        assert!(tracker.mode_enabled());
+        // 3. App pops keyboard mode on exit
+        tracker.process_output(b"\x1b[<u");
+        assert!(!tracker.mode_enabled());
+    }
+
+    // Tests for sequence matching (used for lookback key detection)
+
+    fn check_sequence(buffer: &[u8], byte: u8, sequence: &[u8]) -> SequenceMatch {
+        let mut buf = buffer.to_vec();
+        buf.push(byte);
+        if buf.len() > sequence.len() {
+            let excess = buf.len() - sequence.len();
+            buf.drain(..excess);
+        }
+        if buf.as_slice() == sequence {
+            SequenceMatch::Complete
+        } else if sequence.starts_with(&buf) {
+            SequenceMatch::Partial
+        } else {
+            SequenceMatch::None
+        }
+    }
+
+    #[test]
+    fn test_sequence_match_complete_single_byte() {
+        // Single byte sequence (legacy Ctrl+6 = 0x1E)
+        let sequence = &[0x1E];
+        assert_eq!(check_sequence(&[], 0x1E, sequence), SequenceMatch::Complete);
+    }
+
+    #[test]
+    fn test_sequence_match_complete_multi_byte() {
+        // Multi-byte Kitty sequence: ESC [ 5 4 ; 5 u
+        let sequence = b"\x1b[54;5u";
+        let mut buffer = Vec::new();
+        for &byte in &sequence[..sequence.len() - 1] {
+            let result = check_sequence(&buffer, byte, sequence);
+            assert_eq!(result, SequenceMatch::Partial);
+            buffer.push(byte);
+            if buffer.len() > sequence.len() {
+                buffer.drain(..buffer.len() - sequence.len());
+            }
+        }
+        // Final byte completes the sequence
+        assert_eq!(
+            check_sequence(&buffer, sequence[sequence.len() - 1], sequence),
+            SequenceMatch::Complete
+        );
+    }
+
+    #[test]
+    fn test_sequence_match_partial() {
+        let sequence = b"\x1b[54;5u";
+        assert_eq!(check_sequence(&[], 0x1b, sequence), SequenceMatch::Partial);
+        assert_eq!(
+            check_sequence(&[0x1b], b'[', sequence),
+            SequenceMatch::Partial
+        );
+        assert_eq!(
+            check_sequence(&[0x1b, b'['], b'5', sequence),
+            SequenceMatch::Partial
+        );
+    }
+
+    #[test]
+    fn test_sequence_match_none_wrong_byte() {
+        let sequence = b"\x1b[54;5u";
+        // Start with wrong byte
+        assert_eq!(check_sequence(&[], b'a', sequence), SequenceMatch::None);
+        // Wrong byte after partial match
+        assert_eq!(check_sequence(&[0x1b], b'O', sequence), SequenceMatch::None);
+    }
+
+    #[test]
+    fn test_sequence_match_buffer_rolling() {
+        // Test that the rolling buffer properly handles the case where
+        // random bytes precede the actual sequence. The buffer keeps
+        // only the last N bytes where N = sequence.len()
+        let sequence = b"\x1b[54;5u"; // 7 bytes
+        // User types random chars - no match
+        assert_eq!(check_sequence(&[], b'a', sequence), SequenceMatch::None);
+        assert_eq!(check_sequence(b"a", b'b', sequence), SequenceMatch::None);
+        // Buffer [a, b, ESC] doesn't start sequence (sequence starts with ESC)
+        assert_eq!(check_sequence(b"ab", 0x1b, sequence), SequenceMatch::None);
+        // After more typing, old bytes get trimmed from buffer
+        // When buffer finally contains just ESC at the right position, it matches
+        // But with rolling buffer, we need the EXACT prefix
+        // Fresh start: ESC alone is a partial match
+        assert_eq!(check_sequence(&[], 0x1b, sequence), SequenceMatch::Partial);
+    }
+
+    #[test]
+    fn test_sequence_match_interleaved_typing() {
+        // User types "ab" then the lookback sequence
+        let sequence = &[0x1E];
+        assert_eq!(check_sequence(&[], b'a', sequence), SequenceMatch::None);
+        assert_eq!(check_sequence(b"a", b'b', sequence), SequenceMatch::None);
+        assert_eq!(
+            check_sequence(b"ab", 0x1E, sequence),
+            SequenceMatch::Complete
+        );
+    }
 }
